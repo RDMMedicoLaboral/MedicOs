@@ -36,7 +36,7 @@ textarea {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 300px minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -427,9 +427,10 @@ textarea {
 
 .record-grid {
   display: grid;
-  grid-template-columns: 340px 1fr;
+  grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
   gap: 24px;
   align-items: start;
+  min-width: 0;
 }
 
 .patient-title {
@@ -553,12 +554,14 @@ textarea {
   border-radius: 7px;
   background: var(--bg);
   color: var(--ink);
+  width: 100%;
 }
 
 .vitals-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+  min-width: 0;
 }
 
 .vitals-grid label {
