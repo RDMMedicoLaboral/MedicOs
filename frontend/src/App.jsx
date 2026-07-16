@@ -1,10 +1,13 @@
 import { useEffect, useState, useCallback } from "react";
-import { api } from "./api.js";
+import { api, getToken, setToken, setUnauthorizedHandler } from "./api.js";
 import AgendaView from "./components/AgendaView.jsx";
 import PatientModal from "./components/PatientModal.jsx";
 import AppointmentModal from "./components/AppointmentModal.jsx";
 import PatientRecord from "./components/PatientRecord.jsx";
 import DoctorProfileModal from "./components/DoctorProfileModal.jsx";
+import LoginScreen from "./components/LoginScreen.jsx";
+import UsersModal from "./components/UsersModal.jsx";
+import ReminderSettingsModal from "./components/ReminderSettingsModal.jsx";
 
 function todayISO() {
   const d = new Date();
@@ -24,6 +27,39 @@ function formatHeaderDate(iso) {
 }
 
 export default function App() {
+  // ---------- Sesión ----------
+  const [authLoading, setAuthLoading] = useState(true);
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => setUser(null));
+    (async () => {
+      try {
+        if (getToken()) {
+          const { user: me } = await api.auth.me();
+          setUser(me);
+        } else {
+          const status = await api.auth.status();
+          setNeedsSetup(status.needsSetup);
+        }
+      } catch {
+        setToken(null);
+      } finally {
+        setAuthLoading(false);
+      }
+    })();
+  }, []);
+
+  function handleLogout() {
+    setToken(null);
+    setUser(null);
+    api.auth.status().then((s) => setNeedsSetup(s.needsSetup));
+  }
+
+  const isMedico = user?.role === "medico";
+
+  // ---------- Datos de la app ----------
   const [date, setDate] = useState(todayISO());
   const [patients, setPatients] = useState([]);
   const [appointments, setAppointments] = useState([]);
@@ -33,6 +69,8 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [record, setRecord] = useState(null); // { patientId, appointmentId } | null
   const [showDoctorProfile, setShowDoctorProfile] = useState(false);
+  const [showUsers, setShowUsers] = useState(false);
+  const [showReminders, setShowReminders] = useState(false);
 
   const loadPatients = useCallback(async () => {
     setPatients(await api.patients.list());
@@ -48,12 +86,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!user) return;
     loadPatients();
-  }, [loadPatients]);
+  }, [user, loadPatients]);
 
   useEffect(() => {
+    if (!user) return;
     loadAppointments(date);
-  }, [date, loadAppointments]);
+  }, [user, date, loadAppointments]);
 
   async function handleStatusChange(id, status) {
     setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)));
@@ -64,9 +104,27 @@ export default function App() {
     }
   }
 
+  async function handleSendReminder(id) {
+    await api.reminders.send(id);
+    loadAppointments(date);
+  }
+
   const filteredPatients = search
     ? patients.filter((p) => `${p.first_name} ${p.last_name}`.toLowerCase().includes(search.toLowerCase()))
     : patients;
+
+  if (authLoading) return null;
+
+  if (!user) {
+    return (
+      <LoginScreen
+        needsSetup={needsSetup}
+        onAuthenticated={(u) => {
+          setUser(u);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -92,7 +150,11 @@ export default function App() {
 
         <ul className="patient-list">
           {filteredPatients.map((p) => (
-            <li key={p.id} className="clickable" onClick={() => setRecord({ patientId: p.id, appointmentId: null })}>
+            <li
+              key={p.id}
+              className={isMedico ? "clickable" : ""}
+              onClick={() => isMedico && setRecord({ patientId: p.id, appointmentId: null })}
+            >
               <span>
                 {p.first_name} {p.last_name}
               </span>
@@ -102,13 +164,34 @@ export default function App() {
           {filteredPatients.length === 0 && <li className="hint">Sin resultados.</li>}
         </ul>
 
-        <button className="btn-ghost full" onClick={() => setShowDoctorProfile(true)}>
-          Perfil del médico
-        </button>
+        <div className="sidebar-footer">
+          {isMedico && (
+            <>
+              <button className="btn-ghost full" onClick={() => setShowDoctorProfile(true)}>
+                Perfil del médico
+              </button>
+              <button className="btn-ghost full" onClick={() => setShowUsers(true)}>
+                Gestionar usuarios
+              </button>
+              <button className="btn-ghost full" onClick={() => setShowReminders(true)}>
+                Recordatorios
+              </button>
+            </>
+          )}
+          <div className="user-badge">
+            <div>
+              <strong>{user.full_name}</strong>
+              <span className="user-role-tag">{isMedico ? "Médico" : "Secretaria"}</span>
+            </div>
+            <button className="link-btn" onClick={handleLogout}>
+              Cerrar sesión
+            </button>
+          </div>
+        </div>
       </aside>
 
       <main className="main">
-        {record ? (
+        {record && isMedico ? (
           <PatientRecord
             patientId={record.patientId}
             appointmentId={record.appointmentId}
@@ -144,8 +227,10 @@ export default function App() {
             <AgendaView
               appointments={appointments}
               loading={loading}
+              isMedico={isMedico}
               onChangeStatus={handleStatusChange}
-              onOpenRecord={(patientId, appointmentId) => setRecord({ patientId, appointmentId })}
+              onOpenRecord={(patientId, appointmentId) => isMedico && setRecord({ patientId, appointmentId })}
+              onSendReminder={handleSendReminder}
             />
           </>
         )}
@@ -153,6 +238,7 @@ export default function App() {
 
       {showPatientModal && (
         <PatientModal
+          isMedico={isMedico}
           onClose={() => setShowPatientModal(false)}
           onCreated={() => {
             setShowPatientModal(false);
@@ -177,9 +263,13 @@ export default function App() {
         />
       )}
 
-      {showDoctorProfile && (
+      {showDoctorProfile && isMedico && (
         <DoctorProfileModal onClose={() => setShowDoctorProfile(false)} onSaved={() => setShowDoctorProfile(false)} />
       )}
+
+      {showUsers && isMedico && <UsersModal onClose={() => setShowUsers(false)} />}
+
+      {showReminders && isMedico && <ReminderSettingsModal onClose={() => setShowReminders(false)} />}
     </div>
   );
 }

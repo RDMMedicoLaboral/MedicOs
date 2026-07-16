@@ -64,7 +64,7 @@ prescriptionsRouter.post("/", (req, res) => {
       doctor.clinic_phone
     );
 
-  logAudit({ action: "create", entity: "prescription", entityId: result.lastInsertRowid });
+  logAudit({ actor: req.user.username, action: "create", entity: "prescription", entityId: result.lastInsertRowid });
 
   const prescription = db.prepare(`SELECT * FROM prescriptions WHERE id = ?`).get(result.lastInsertRowid);
   res.status(201).json({ ...prescription, items: JSON.parse(prescription.items_json) });
@@ -78,24 +78,6 @@ prescriptionsRouter.get("/patient/:patientId", (req, res) => {
   res.json(rows.map((r) => ({ ...r, items: JSON.parse(r.items_json) })));
 });
 
-// GET /api/prescriptions/verify/:token -> validación pública (para farmacias)
-prescriptionsRouter.get("/verify/:token", (req, res) => {
-  const rx = db.prepare(`SELECT * FROM prescriptions WHERE qr_token = ?`).get(req.params.token);
-  if (!rx) return res.status(404).json({ valid: false, error: "Receta no encontrada" });
-
-  const patient = db.prepare(`SELECT first_name, last_name FROM patients WHERE id = ?`).get(rx.patient_id);
-
-  res.json({
-    valid: true,
-    issued_at: rx.created_at,
-    patient_name: patient ? `${patient.first_name} ${patient.last_name}` : null,
-    doctor_name: rx.doctor_name,
-    doctor_license: rx.doctor_license,
-    clinic_name: rx.clinic_name,
-    items: JSON.parse(rx.items_json),
-  });
-});
-
 // GET /api/prescriptions/:id/pdf -> genera y transmite el PDF con QR
 prescriptionsRouter.get("/:id/pdf", async (req, res) => {
   const rx = db.prepare(`SELECT * FROM prescriptions WHERE id = ?`).get(req.params.id);
@@ -103,7 +85,7 @@ prescriptionsRouter.get("/:id/pdf", async (req, res) => {
 
   const patient = db.prepare(`SELECT * FROM patients WHERE id = ?`).get(rx.patient_id);
   const items = JSON.parse(rx.items_json);
-  const verifyUrl = `${req.protocol}://${req.get("host")}/api/prescriptions/verify/${rx.qr_token}`;
+  const verifyUrl = `${req.protocol}://${req.get("host")}/api/verify/${rx.qr_token}`;
   const qrDataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, width: 200 });
   const qrBuffer = Buffer.from(qrDataUrl.split(",")[1], "base64");
 

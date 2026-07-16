@@ -27,6 +27,9 @@ appointmentsRouter.get("/", (req, res) => {
       )
       .all();
   }
+  if (req.user.role !== "medico") {
+    rows = rows.map(({ allergies, ...rest }) => rest);
+  }
   res.json(rows);
 });
 
@@ -50,7 +53,7 @@ appointmentsRouter.post("/", (req, res) => {
     )
     .run(patient_id, start_time, duration, visit_type ?? "subsecuente", reason ?? null, notes ?? null);
 
-  logAudit({ action: "create", entity: "appointment", entityId: result.lastInsertRowid });
+  logAudit({ actor: req.user.username, action: "create", entity: "appointment", entityId: result.lastInsertRowid });
   const appt = db.prepare(`SELECT * FROM appointments WHERE id = ?`).get(result.lastInsertRowid);
   res.status(201).json(appt);
 });
@@ -71,6 +74,7 @@ appointmentsRouter.patch("/:id/status", (req, res) => {
   );
 
   logAudit({
+    actor: req.user.username,
     action: "status_change",
     entity: "appointment",
     entityId: req.params.id,
@@ -92,7 +96,7 @@ appointmentsRouter.put("/:id", (req, res) => {
      WHERE id = ?`
   ).run(merged.start_time, merged.duration_minutes, merged.visit_type, merged.reason, merged.notes, req.params.id);
 
-  logAudit({ action: "update", entity: "appointment", entityId: req.params.id });
+  logAudit({ actor: req.user.username, action: "update", entity: "appointment", entityId: req.params.id });
   res.json(db.prepare(`SELECT * FROM appointments WHERE id = ?`).get(req.params.id));
 });
 
@@ -101,6 +105,6 @@ appointmentsRouter.delete("/:id", (req, res) => {
   if (!existing) return res.status(404).json({ error: "Cita no encontrada" });
 
   db.prepare(`DELETE FROM appointments WHERE id = ?`).run(req.params.id);
-  logAudit({ action: "delete", entity: "appointment", entityId: req.params.id });
+  logAudit({ actor: req.user.username, action: "delete", entity: "appointment", entityId: req.params.id });
   res.status(204).end();
 });

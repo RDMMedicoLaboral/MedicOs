@@ -1,0 +1,109 @@
+import { Router } from "express";
+import { db } from "../db.js";
+import { requireRole } from "../auth.js";
+import { getSettings, sendReminderForAppointment } from "../reminders.js";
+
+export const remindersRouter = Router();   // rutas protegidas (sesión)
+export const remindersWebhookRouter = Router(); // pública, la llama Twilio
+
+// GET /api/reminder-settings -> configuración actual (sin exponer el auth token completo)
+remindersRouter.get("/reminder-settings", (req, res) => {
+  const s = getSettings();
+  res.json({
+    ...s,
+    twilio_auth_token: s.twilio_auth_token ? "••••••••" : "",
+    has_twilio_auth_token: Boolean(s.twilio_auth_token),
+  });
+});
+
+// PUT /api/reminder-settings -> solo médico
+remindersRouter.put("/reminder-settings", requireRole("medico"), (req, res) => {
+  const {
+    provider,
+    twilio_account_sid,
+    twilio_auth_token,
+    twilio_from_number,
+    message_template,
+    hours_before,
+    enabled,
+  } = req.body;
+
+  const current = getSettings();
+  // Si mandan el placeholder de puntos, no sobreescribimos el token guardado.
+  const nextToken =
+    twilio_auth_token && twilio_auth_token !== "••••••••" ? twilio_auth_token : current.twilio_auth_token;
+
+  db.prepare(
+    `INSERT INTO reminder_settings
+      (id, provider, twilio_account_sid, twilio_auth_token, twilio_from_number, message_template, hours_before, enabled)
+     VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       provider = excluded.provider,
+       twilio_account_sid = excluded.twilio_account_sid,
+       twilio_auth_token = excluded.twilio_auth_token,
+       twilio_from_number = excluded.twilio_from_number,
+       message_template = excluded.message_template,
+       hours_before = excluded.hours_before,
+       enabled = excluded.enabled`
+  ).run(
+    provider ?? "simulado",
+    twilio_account_sid ?? "",
+    nextToken ?? "",
+    twilio_from_number ?? "",
+    message_template ?? current.message_template,
+    hours_before ?? 24,
+    enabled ? 1 : 0
+  );
+
+  const s = getSettings();
+  res.json({ ...s, twilio_auth_token: s.twilio_auth_token ? "••••••••" : "" });
+});
+
+// POST /api/appointments/:id/send-reminder -> envío manual (para probar sin esperar 24h)
+remindersRouter.post("/appointments/:id/send-reminder", async (req, res) => {
+  const result = await sendReminderForAppointment(req.params.id);
+  if (!result.ok) return res.status(400).json(result);
+  res.json(result);
+});
+
+// ---------- Webhook público (lo llama Twilio, sin sesión) ----------
+// POST /api/reminders/webhook  (form-urlencoded: From, Body, ...)
+remindersWebhookRouter.post("/webhook", (req, res) => {
+  const from = String(req.body.From || "").replace("whatsapp:", "");
+  const body = String(req.body.Body || "").trim();
+  const digits = from.replace(/\D/g, "").slice(-10);
+
+  const patient = db
+    .prepare(`SELECT id FROM patients WHERE REPLACE(REPLACE(REPLACE(phone,'-',''),' ',''),'+','') LIKE ?`)
+    .get(`%${digits}`);
+
+  let replyText = "No pudimos identificar tu cita. Por favor comunícate al consultorio.";
+
+  if (patient) {
+    const appt = db
+      .prepare(
+        `SELECT * FROM appointments
+         WHERE patient_id = ? AND status IN ('programada','confirmada')
+         ORDER BY start_time ASC LIMIT 1`
+      )
+      .get(patient.id);
+
+    if (appt) {
+      if (body === "1") {
+        db.prepare(`UPDATE appointments SET status = 'confirmada', updated_at = datetime('now') WHERE id = ?`).run(appt.id);
+        replyText = "¡Gracias! Tu cita quedó confirmada.";
+      } else if (body === "2") {
+        db.prepare(`UPDATE appointments SET status = 'cancelada', updated_at = datetime('now') WHERE id = ?`).run(appt.id);
+        replyText = "Tu cita fue cancelada. Si deseas reagendar, comunícate al consultorio.";
+      } else {
+        replyText = "Por favor responde solo con 1 para CONFIRMAR o 2 para CANCELAR tu cita.";
+      }
+      db.prepare(
+        `INSERT INTO reminder_log (appointment_id, direction, channel, body) VALUES (?, 'in', 'twilio', ?)`
+      ).run(appt.id, body);
+    }
+  }
+
+  // Respuesta en formato TwiML mínimo, que es lo que Twilio espera.
+  res.type("text/xml").send(`<Response><Message>${replyText}</Message></Response>`);
+});

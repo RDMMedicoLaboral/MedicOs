@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.join(__dirname, "..", "agenda.db");
+const dbPath = process.env.DB_PATH || path.join(__dirname, "..", "agenda.db");
 
 export const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");
@@ -45,6 +45,8 @@ CREATE TABLE IF NOT EXISTS appointments (
   -- programada | confirmada | en_sala_espera | en_consulta | finalizada | cancelada | no_asistio
   reason TEXT,
   notes TEXT,
+  reminder_sent_at TEXT,      -- cuándo se envió el recordatorio (NULL = no enviado)
+  reminder_channel TEXT,      -- 'whatsapp' | 'sms' | 'simulado'
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -134,6 +136,44 @@ CREATE TABLE IF NOT EXISTS prescriptions (
 
 CREATE INDEX IF NOT EXISTS idx_prescriptions_patient ON prescriptions(patient_id);
 CREATE INDEX IF NOT EXISTS idx_prescriptions_qr ON prescriptions(qr_token);
+
+-- Configuración de recordatorios automáticos (fila única, id = 1).
+-- provider: 'simulado' (no envía nada real, solo lo registra — es el modo
+-- por defecto para poder probar el flujo sin contratar nada) | 'twilio_whatsapp' | 'twilio_sms'.
+CREATE TABLE IF NOT EXISTS reminder_settings (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  provider TEXT NOT NULL DEFAULT 'simulado',
+  twilio_account_sid TEXT,
+  twilio_auth_token TEXT,
+  twilio_from_number TEXT,
+  message_template TEXT NOT NULL DEFAULT
+    'Hola {paciente}, le recordamos su cita el {fecha} a las {hora} en {consultorio}. Responda 1 para CONFIRMAR o 2 para CANCELAR.',
+  hours_before INTEGER NOT NULL DEFAULT 24,
+  enabled INTEGER NOT NULL DEFAULT 0
+);
+
+-- Registro de cada envío/respuesta de recordatorio, para trazabilidad.
+CREATE TABLE IF NOT EXISTS reminder_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  appointment_id INTEGER REFERENCES appointments(id) ON DELETE CASCADE,
+  direction TEXT NOT NULL,   -- 'out' (recordatorio enviado) | 'in' (respuesta del paciente)
+  channel TEXT,
+  body TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Usuarios del sistema. Dos roles:
+--   medico     -> acceso total (agenda, expediente, recetas, perfil).
+--   secretaria -> solo agenda y datos de contacto; nunca historial médico,
+--                 diagnósticos ni recetas (ver rutas protegidas en el backend).
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  full_name TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('medico', 'secretaria')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 -- Bitácora de auditoría mínima (quién/cuándo/qué), tal como exige el
 -- documento fuente. En el MVP se registra desde las rutas.

@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: ece-agenda
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: "cd frontend && npm install && npm run build && cd ../backend && npm install"
+    startCommand: "cd backend && npm start"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DB_PATH
+        value: /data/agenda.db
+    disk:
+      name: ece-agenda-data
+      mountPath: /data
+      sizeGB: 1

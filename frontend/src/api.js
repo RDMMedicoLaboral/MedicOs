@@ -1,10 +1,34 @@
 const BASE = "/api";
+const TOKEN_KEY = "ece_agenda_token";
+
+export function getToken() {
+  return localStorage.getItem(TOKEN_KEY);
+}
+export function setToken(token) {
+  if (token) localStorage.setItem(TOKEN_KEY, token);
+  else localStorage.removeItem(TOKEN_KEY);
+}
+
+// Se dispara cuando el backend responde 401 (sesión inválida/expirada) para
+// que App.jsx pueda regresar a la pantalla de login.
+let onUnauthorized = () => {};
+export function setUnauthorizedHandler(fn) {
+  onUnauthorized = fn;
+}
 
 async function request(path, options = {}) {
+  const token = getToken();
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     ...options,
   });
+  if (res.status === 401) {
+    setToken(null);
+    onUnauthorized();
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `Error ${res.status}`);
@@ -14,6 +38,17 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  auth: {
+    status: () => request(`/auth/status`),
+    setup: (data) => request(`/auth/setup`, { method: "POST", body: JSON.stringify(data) }),
+    login: (data) => request(`/auth/login`, { method: "POST", body: JSON.stringify(data) }),
+    me: () => request(`/auth/me`),
+  },
+  users: {
+    list: () => request(`/users`),
+    create: (data) => request(`/users`, { method: "POST", body: JSON.stringify(data) }),
+    remove: (id) => request(`/users/${id}`, { method: "DELETE" }),
+  },
   patients: {
     list: (q) => request(`/patients${q ? `?q=${encodeURIComponent(q)}` : ""}`),
     get: (id) => request(`/patients/${id}`),
@@ -42,6 +77,11 @@ export const api = {
   prescriptions: {
     listByPatient: (patientId) => request(`/prescriptions/patient/${patientId}`),
     create: (data) => request(`/prescriptions`, { method: "POST", body: JSON.stringify(data) }),
-    pdfUrl: (id) => `${BASE}/prescriptions/${id}/pdf`,
+    pdfUrl: (id) => `${BASE}/prescriptions/${id}/pdf?token=${encodeURIComponent(getToken() || "")}`,
+  },
+  reminders: {
+    getSettings: () => request(`/reminder-settings`),
+    updateSettings: (data) => request(`/reminder-settings`, { method: "PUT", body: JSON.stringify(data) }),
+    send: (appointmentId) => request(`/appointments/${appointmentId}/send-reminder`, { method: "POST" }),
   },
 };

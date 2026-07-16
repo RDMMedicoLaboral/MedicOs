@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db } from "../db.js";
+import { requireRole } from "../auth.js";
 
 export const doctorProfileRouter = Router();
 
@@ -18,7 +19,7 @@ doctorProfileRouter.get("/", (_req, res) => {
   );
 });
 
-doctorProfileRouter.put("/", (req, res) => {
+doctorProfileRouter.put("/", requireRole("medico"), (req, res) => {
   const { full_name, professional_license, specialty, clinic_name, clinic_address, clinic_phone } = req.body;
   db.prepare(
     `INSERT INTO doctor_profile (id, full_name, professional_license, specialty, clinic_name, clinic_address, clinic_phone)

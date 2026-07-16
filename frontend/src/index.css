@@ -706,3 +706,114 @@ textarea {
 .rx-success {
   padding: 10px 0;
 }
+
+/* ---------- Autenticación ---------- */
+
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  padding: 20px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+}
+
+/* ---------- Barra lateral: usuario y gestión ---------- */
+
+.sidebar-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.user-badge {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  padding-top: 4px;
+}
+
+.user-role-tag {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 0.68rem;
+  font-family: var(--font-mono);
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 1px 6px;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+.user-list {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.user-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.88rem;
+}
+
+/* ---------- Recordatorios ---------- */
+
+.reminder-row {
+  margin-top: 10px;
+}
+
+.reminder-tag {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid;
+}
+
+.reminder-tag.sent {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.reminder-tag.pending {
+  color: #6b6250;
+  border-color: var(--line);
+  background: transparent;
+  cursor: pointer;
+}
+
+.reminder-tag.pending:hover {
+  background: var(--bg);
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+
+.checkbox-row input {
+  width: auto;
+}

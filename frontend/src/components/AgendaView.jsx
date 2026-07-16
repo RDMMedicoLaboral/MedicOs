@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { STATUS, NEXT_STATUS } from "../statusConfig.js";
 
 function formatTime(iso) {
@@ -5,7 +6,22 @@ function formatTime(iso) {
   return d.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function AgendaView({ appointments, loading, onChangeStatus, onOpenRecord }) {
+export default function AgendaView({ appointments, loading, isMedico, onChangeStatus, onOpenRecord, onSendReminder }) {
+  const [sendingId, setSendingId] = useState(null);
+  const [sentFeedback, setSentFeedback] = useState({}); // { [apptId]: 'ok' | 'error' }
+
+  async function handleSend(id) {
+    setSendingId(id);
+    try {
+      await onSendReminder(id);
+      setSentFeedback((prev) => ({ ...prev, [id]: "ok" }));
+    } catch {
+      setSentFeedback((prev) => ({ ...prev, [id]: "error" }));
+    } finally {
+      setSendingId(null);
+    }
+  }
+
   if (loading) {
     return <p className="empty-state">Cargando agenda…</p>;
   }
@@ -42,6 +58,24 @@ export default function AgendaView({ appointments, loading, onChangeStatus, onOp
                 {appt.visit_type === "primera_vez" ? "Primera vez" : "Subsecuente"} · {appt.duration_minutes} min
                 {appt.reason ? ` · ${appt.reason}` : ""}
               </div>
+
+              {["programada", "confirmada"].includes(appt.status) && (
+                <div className="reminder-row">
+                  {appt.reminder_sent_at ? (
+                    <span className="reminder-tag sent">✓ Recordatorio enviado</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="reminder-tag pending"
+                      disabled={sendingId === appt.id}
+                      onClick={() => handleSend(appt.id)}
+                    >
+                      {sendingId === appt.id ? "Enviando…" : "Enviar recordatorio"}
+                    </button>
+                  )}
+                  {sentFeedback[appt.id] === "error" && <span className="hint" style={{ color: "var(--allergy)" }}>No se pudo enviar (¿tiene teléfono?)</span>}
+                </div>
+              )}
               {nextOptions.length > 0 && (
                 <div className="appt-actions">
                   {nextOptions.map((s) => (
@@ -54,12 +88,14 @@ export default function AgendaView({ appointments, loading, onChangeStatus, onOp
                       {STATUS[s].label}
                     </button>
                   ))}
-                  <button className="btn-primary sm" onClick={() => onOpenRecord(appt.patient_id, appt.id)}>
-                    Iniciar consulta
-                  </button>
+                  {isMedico && (
+                    <button className="btn-primary sm" onClick={() => onOpenRecord(appt.patient_id, appt.id)}>
+                      Iniciar consulta
+                    </button>
+                  )}
                 </div>
               )}
-              {nextOptions.length === 0 && (
+              {nextOptions.length === 0 && isMedico && (
                 <div className="appt-actions">
                   <button className="btn-ghost sm" onClick={() => onOpenRecord(appt.patient_id, appt.id)}>
                     Ver expediente

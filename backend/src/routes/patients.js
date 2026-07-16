@@ -1,7 +1,19 @@
 import { Router } from "express";
 import { db, logAudit } from "../db.js";
+import { requireRole } from "../auth.js";
 
 export const patientsRouter = Router();
+
+const CLINICAL_FIELDS = ["allergies", "chronic_conditions", "notes"];
+
+// La secretaria ve datos de agenda/contacto, nunca historial médico
+// (alergias, antecedentes, notas clínicas), tal como pide el documento.
+function redactForRole(patient, role) {
+  if (role === "medico") return patient;
+  const copy = { ...patient };
+  for (const f of CLINICAL_FIELDS) delete copy[f];
+  return copy;
+}
 
 // GET /api/patients?q=texto  -> lista / búsqueda
 patientsRouter.get("/", (req, res) => {
@@ -19,16 +31,21 @@ patientsRouter.get("/", (req, res) => {
   } else {
     rows = db.prepare(`SELECT * FROM patients ORDER BY last_name, first_name`).all();
   }
-  res.json(rows);
+  res.json(rows.map((p) => redactForRole(p, req.user.role)));
 });
 
 patientsRouter.get("/:id", (req, res) => {
   const patient = db.prepare(`SELECT * FROM patients WHERE id = ?`).get(req.params.id);
   if (!patient) return res.status(404).json({ error: "Paciente no encontrado" });
-  res.json(patient);
+  res.json(redactForRole(patient, req.user.role));
 });
 
 patientsRouter.post("/", (req, res) => {
+  const body = { ...req.body };
+  if (req.user.role !== "medico") {
+    // La secretaria puede registrar pacientes, pero no capturar datos clínicos.
+    for (const f of CLINICAL_FIELDS) delete body[f];
+  }
   const {
     first_name,
     last_name,
@@ -42,7 +59,7 @@ patientsRouter.post("/", (req, res) => {
     allergies,
     chronic_conditions,
     notes,
-  } = req.body;
+  } = body;
 
   if (!first_name || !last_name) {
     return res.status(400).json({ error: "first_name y last_name son obligatorios" });
@@ -71,16 +88,21 @@ patientsRouter.post("/", (req, res) => {
       notes ?? null
     );
 
-  logAudit({ action: "create", entity: "patient", entityId: result.lastInsertRowid });
+  logAudit({ actor: req.user.username, action: "create", entity: "patient", entityId: result.lastInsertRowid });
   const patient = db.prepare(`SELECT * FROM patients WHERE id = ?`).get(result.lastInsertRowid);
-  res.status(201).json(patient);
+  res.status(201).json(redactForRole(patient, req.user.role));
 });
 
 patientsRouter.put("/:id", (req, res) => {
   const existing = db.prepare(`SELECT * FROM patients WHERE id = ?`).get(req.params.id);
   if (!existing) return res.status(404).json({ error: "Paciente no encontrado" });
 
-  const merged = { ...existing, ...req.body };
+  const body = { ...req.body };
+  if (req.user.role !== "medico") {
+    for (const f of CLINICAL_FIELDS) delete body[f];
+  }
+
+  const merged = { ...existing, ...body };
   db.prepare(
     `UPDATE patients SET
       first_name = ?, last_name = ?, birth_date = ?, gender = ?, phone = ?,
@@ -104,15 +126,17 @@ patientsRouter.put("/:id", (req, res) => {
     req.params.id
   );
 
-  logAudit({ action: "update", entity: "patient", entityId: req.params.id });
-  res.json(db.prepare(`SELECT * FROM patients WHERE id = ?`).get(req.params.id));
+  logAudit({ actor: req.user.username, action: "update", entity: "patient", entityId: req.params.id });
+  const updated = db.prepare(`SELECT * FROM patients WHERE id = ?`).get(req.params.id);
+  res.json(redactForRole(updated, req.user.role));
 });
 
-patientsRouter.delete("/:id", (req, res) => {
+// Eliminar pacientes queda reservado al médico (se protege también en server.js).
+patientsRouter.delete("/:id", requireRole("medico"), (req, res) => {
   const existing = db.prepare(`SELECT * FROM patients WHERE id = ?`).get(req.params.id);
   if (!existing) return res.status(404).json({ error: "Paciente no encontrado" });
 
   db.prepare(`DELETE FROM patients WHERE id = ?`).run(req.params.id);
-  logAudit({ action: "delete", entity: "patient", entityId: req.params.id });
+  logAudit({ actor: req.user.username, action: "delete", entity: "patient", entityId: req.params.id });
   res.status(204).end();
 });

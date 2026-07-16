@@ -65,7 +65,7 @@ consultationsRouter.post("/consultations", (req, res) => {
       plan ?? null
     );
 
-  logAudit({ action: "create", entity: "consultation", entityId: result.lastInsertRowid });
+  logAudit({ actor: req.user.username, action: "create", entity: "consultation", entityId: result.lastInsertRowid });
 
   // Si la nota viene ligada a una cita, la marcamos como Finalizada.
   if (appointment_id) {

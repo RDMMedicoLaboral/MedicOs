@@ -15,7 +15,7 @@ const EMPTY = {
   chronic_conditions: "",
 };
 
-export default function PatientModal({ onClose, onCreated }) {
+export default function PatientModal({ isMedico = true, onClose, onCreated }) {
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -82,18 +82,22 @@ export default function PatientModal({ onClose, onCreated }) {
             Tipo de sangre
             <input value={form.blood_type} onChange={set("blood_type")} placeholder="O+" />
           </label>
-          <label className="span-2">
-            Alergias
-            <input
-              value={form.allergies}
-              onChange={set("allergies")}
-              placeholder="Ej. Penicilina — se mostrará como alerta roja"
-            />
-          </label>
-          <label className="span-2">
-            Enfermedades crónicas / antecedentes
-            <textarea rows={2} value={form.chronic_conditions} onChange={set("chronic_conditions")} />
-          </label>
+          {isMedico && (
+            <>
+              <label className="span-2">
+                Alergias
+                <input
+                  value={form.allergies}
+                  onChange={set("allergies")}
+                  placeholder="Ej. Penicilina — se mostrará como alerta roja"
+                />
+              </label>
+              <label className="span-2">
+                Enfermedades crónicas / antecedentes
+                <textarea rows={2} value={form.chronic_conditions} onChange={set("chronic_conditions")} />
+              </label>
+            </>
+          )}
 
           {error && <p className="form-error span-2">{error}</p>}
 
