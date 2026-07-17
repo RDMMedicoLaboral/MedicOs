@@ -30,7 +30,6 @@ function formatHeaderDate(iso) {
 export default function App() {
   // ---------- Sesión ----------
   const [authLoading, setAuthLoading] = useState(true);
-  const [needsSetup, setNeedsSetup] = useState(false);
   const [user, setUser] = useState(null);
 
   useEffect(() => {
@@ -40,9 +39,6 @@ export default function App() {
         if (getToken()) {
           const { user: me } = await api.auth.me();
           setUser(me);
-        } else {
-          const status = await api.auth.status();
-          setNeedsSetup(status.needsSetup);
         }
       } catch {
         setToken(null);
@@ -55,7 +51,6 @@ export default function App() {
   function handleLogout() {
     setToken(null);
     setUser(null);
-    api.auth.status().then((s) => setNeedsSetup(s.needsSetup));
   }
 
   const isMedico = user?.role === "medico";
@@ -119,7 +114,6 @@ export default function App() {
   if (!user) {
     return (
       <LoginScreen
-        needsSetup={needsSetup}
         onAuthenticated={(u) => {
           setUser(u);
         }}
@@ -134,7 +128,7 @@ export default function App() {
           <span className="brand-mark">Rx</span>
           <div>
             <div className="brand-name"><span className="brand-medic">Medic</span><span className="brand-os">Os</span></div>
-            <div className="brand-sub">Expediente &amp; Agenda</div>
+            <div className="brand-sub">{user.clinic_name || "Expediente & Agenda"}</div>
           </div>
         </div>
 

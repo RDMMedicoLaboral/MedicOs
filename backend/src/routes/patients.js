@@ -15,7 +15,7 @@ function redactForRole(patient, role) {
   return copy;
 }
 
-// GET /api/patients?q=texto  -> lista / búsqueda
+// GET /api/patients?q=texto  -> lista / búsqueda, SIEMPRE dentro de la clínica del usuario
 patientsRouter.get("/", (req, res) => {
   const { q } = req.query;
   let rows;
@@ -24,18 +24,18 @@ patientsRouter.get("/", (req, res) => {
     rows = db
       .prepare(
         `SELECT * FROM patients
-         WHERE first_name LIKE ? OR last_name LIKE ? OR phone LIKE ?
+         WHERE clinic_id = ? AND (first_name LIKE ? OR last_name LIKE ? OR phone LIKE ?)
          ORDER BY last_name, first_name`
       )
-      .all(like, like, like);
+      .all(req.user.clinic_id, like, like, like);
   } else {
-    rows = db.prepare(`SELECT * FROM patients ORDER BY last_name, first_name`).all();
+    rows = db.prepare(`SELECT * FROM patients WHERE clinic_id = ? ORDER BY last_name, first_name`).all(req.user.clinic_id);
   }
   res.json(rows.map((p) => redactForRole(p, req.user.role)));
 });
 
 patientsRouter.get("/:id", (req, res) => {
-  const patient = db.prepare(`SELECT * FROM patients WHERE id = ?`).get(req.params.id);
+  const patient = db.prepare(`SELECT * FROM patients WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
   if (!patient) return res.status(404).json({ error: "Paciente no encontrado" });
   res.json(redactForRole(patient, req.user.role));
 });
@@ -68,12 +68,13 @@ patientsRouter.post("/", (req, res) => {
   const result = db
     .prepare(
       `INSERT INTO patients
-        (first_name, last_name, birth_date, gender, phone, email,
+        (clinic_id, first_name, last_name, birth_date, gender, phone, email,
          emergency_contact_name, emergency_contact_phone, blood_type,
          allergies, chronic_conditions, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
+      req.user.clinic_id,
       first_name,
       last_name,
       birth_date ?? null,
@@ -88,13 +89,13 @@ patientsRouter.post("/", (req, res) => {
       notes ?? null
     );
 
-  logAudit({ actor: req.user.username, action: "create", entity: "patient", entityId: result.lastInsertRowid });
+  logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "create", entity: "patient", entityId: result.lastInsertRowid });
   const patient = db.prepare(`SELECT * FROM patients WHERE id = ?`).get(result.lastInsertRowid);
   res.status(201).json(redactForRole(patient, req.user.role));
 });
 
 patientsRouter.put("/:id", (req, res) => {
-  const existing = db.prepare(`SELECT * FROM patients WHERE id = ?`).get(req.params.id);
+  const existing = db.prepare(`SELECT * FROM patients WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
   if (!existing) return res.status(404).json({ error: "Paciente no encontrado" });
 
   const body = { ...req.body };
@@ -109,7 +110,7 @@ patientsRouter.put("/:id", (req, res) => {
       email = ?, emergency_contact_name = ?, emergency_contact_phone = ?,
       blood_type = ?, allergies = ?, chronic_conditions = ?, notes = ?,
       updated_at = datetime('now')
-     WHERE id = ?`
+     WHERE id = ? AND clinic_id = ?`
   ).run(
     merged.first_name,
     merged.last_name,
@@ -123,20 +124,21 @@ patientsRouter.put("/:id", (req, res) => {
     merged.allergies,
     merged.chronic_conditions,
     merged.notes,
-    req.params.id
+    req.params.id,
+    req.user.clinic_id
   );
 
-  logAudit({ actor: req.user.username, action: "update", entity: "patient", entityId: req.params.id });
+  logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "update", entity: "patient", entityId: req.params.id });
   const updated = db.prepare(`SELECT * FROM patients WHERE id = ?`).get(req.params.id);
   res.json(redactForRole(updated, req.user.role));
 });
 
-// Eliminar pacientes queda reservado al médico (se protege también en server.js).
+// Eliminar pacientes queda reservado al médico.
 patientsRouter.delete("/:id", requireRole("medico"), (req, res) => {
-  const existing = db.prepare(`SELECT * FROM patients WHERE id = ?`).get(req.params.id);
+  const existing = db.prepare(`SELECT * FROM patients WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
   if (!existing) return res.status(404).json({ error: "Paciente no encontrado" });
 
   db.prepare(`DELETE FROM patients WHERE id = ?`).run(req.params.id);
-  logAudit({ actor: req.user.username, action: "delete", entity: "patient", entityId: req.params.id });
+  logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "delete", entity: "patient", entityId: req.params.id });
   res.status(204).end();
 });

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import "./db.js"; // inicializa el esquema al arrancar
 import { requireAuth, requireRole } from "./auth.js";
 import { authRouter } from "./routes/auth.js";
+import { adminRouter } from "./routes/admin.js";
 import { verifyRouter } from "./routes/verify.js";
 import { usersRouter } from "./routes/users.js";
 import { patientsRouter } from "./routes/patients.js";
@@ -32,32 +33,37 @@ app.use((req, _res, next) => {
   next();
 });
 
-// ---------- Rutas públicas (sin sesión) ----------
+// ---------- Rutas públicas (sin sesión de médico/secretaria) ----------
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter);
+app.use("/api/admin", adminRouter); // protegida por ADMIN_SECRET, no por login normal
 app.use("/api/verify", verifyRouter); // lo escanea el QR de la receta
 app.use("/api/reminders", remindersWebhookRouter); // lo llama Twilio (respuestas 1/2)
 
-// ---------- A partir de aquí, todo requiere sesión ----------
+// ---------- A partir de aquí, todo requiere sesión de médico/secretaria ----------
 app.use("/api", requireAuth);
 
-// Agenda y pacientes: ambos roles (secretaria y médico). El filtrado de
-// campos clínicos para la secretaria ocurre dentro de patientsRouter.
+// Agenda y pacientes: ambos roles (secretaria y médico), siempre acotado a
+// la clínica del usuario logueado. El filtrado de campos clínicos para la
+// secretaria ocurre dentro de patientsRouter.
 app.use("/api/patients", patientsRouter);
 app.use("/api/appointments", appointmentsRouter);
 app.use("/api", remindersRouter); // configuración + envío manual de recordatorios
 
 // Perfil del médico: lectura para ambos roles, escritura solo médico
-// (se controla dentro de doctorProfileRouter).
+// (se controla dentro de doctorProfileRouter). Una fila por clínica.
 app.use("/api/doctor-profile", doctorProfileRouter);
 
-// Exclusivo del médico: expediente clínico, recetas y sus catálogos.
-app.use("/api/cie11", requireRole("medico"), cie11Router);
-app.use("/api/medications", requireRole("medico"), medicationsRouter);
+// Exclusivo del médico: expediente clínico, recetas.
 app.use("/api/prescriptions", requireRole("medico"), prescriptionsRouter);
 app.use("/api", requireRole("medico"), consultationsRouter);
 
-// Gestión de cuentas de secretaria: exclusivo del médico.
+// Catálogos compartidos (CIE-11, medicamentos): solo médico, pero NO están
+// acotados por clínica porque son datos de referencia, no de pacientes.
+app.use("/api/cie11", requireRole("medico"), cie11Router);
+app.use("/api/medications", requireRole("medico"), medicationsRouter);
+
+// Gestión de cuentas de secretaria: exclusivo del médico, dentro de su propia clínica.
 app.use("/api/users", requireRole("medico"), usersRouter);
 
 app.use((err, _req, res, _next) => {
@@ -83,10 +89,11 @@ app.listen(PORT, () => {
   console.log(`API de Agenda escuchando en http://localhost:${PORT}`);
 });
 
-// Revisa cada 15 minutos si hay citas que ya entraron en la ventana de
-// recordatorio (por defecto 24h antes) y las envía. Además corre una vez
-// poco después de arrancar. Limitación del MVP: solo funciona mientras
-// este proceso esté vivo; en producción conviene un cron/worker aparte.
+// Revisa cada 15 minutos si hay citas (en cualquier clínica con
+// recordatorios activados) que ya entraron en su ventana de recordatorio y
+// las envía. Además corre una vez poco después de arrancar. Limitación del
+// MVP: solo funciona mientras este proceso esté vivo; en producción
+// conviene un cron/worker aparte.
 setInterval(() => {
   checkAndSendDueReminders().catch((err) => console.error("Error en checkAndSendDueReminders:", err));
 }, 15 * 60 * 1000);

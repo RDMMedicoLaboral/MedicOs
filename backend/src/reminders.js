@@ -1,14 +1,17 @@
 import { db } from "./db.js";
 
-function getSettings() {
+const DEFAULT_TEMPLATE =
+  "Hola {paciente}, le recordamos su cita el {fecha} a las {hora} en {consultorio}. Responda 1 para CONFIRMAR o 2 para CANCELAR.";
+
+function getSettings(clinicId) {
   return (
-    db.prepare(`SELECT * FROM reminder_settings WHERE id = 1`).get() || {
+    db.prepare(`SELECT * FROM reminder_settings WHERE clinic_id = ?`).get(clinicId) || {
+      clinic_id: clinicId,
       provider: "simulado",
       twilio_account_sid: "",
       twilio_auth_token: "",
       twilio_from_number: "",
-      message_template:
-        "Hola {paciente}, le recordamos su cita el {fecha} a las {hora} en {consultorio}. Responda 1 para CONFIRMAR o 2 para CANCELAR.",
+      message_template: DEFAULT_TEMPLATE,
       hours_before: 24,
       enabled: 0,
     }
@@ -26,20 +29,22 @@ function formatTime(iso) {
   return new Date(iso).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" });
 }
 
-// Envía (o simula) el recordatorio de UNA cita. Regresa { ok, channel, simulated, error? }.
-export async function sendReminderForAppointment(appointmentId) {
-  const settings = getSettings();
+// Envía (o simula) el recordatorio de UNA cita. clinicId se usa para
+// verificar que la cita pertenezca a esa clínica antes de tocar nada.
+// Regresa { ok, channel, simulated, error? }.
+export async function sendReminderForAppointment(appointmentId, clinicId) {
   const appt = db
     .prepare(
       `SELECT a.*, p.first_name, p.last_name, p.phone
        FROM appointments a JOIN patients p ON p.id = a.patient_id
-       WHERE a.id = ?`
+       WHERE a.id = ? AND a.clinic_id = ?`
     )
-    .get(appointmentId);
+    .get(appointmentId, clinicId);
   if (!appt) return { ok: false, error: "Cita no encontrada" };
   if (!appt.phone) return { ok: false, error: "El paciente no tiene teléfono registrado" };
 
-  const doctor = db.prepare(`SELECT clinic_name FROM doctor_profile WHERE id = 1`).get();
+  const settings = getSettings(clinicId);
+  const doctor = db.prepare(`SELECT clinic_name FROM doctor_profile WHERE clinic_id = ?`).get(clinicId);
   const message = renderTemplate(settings.message_template, {
     paciente: `${appt.first_name} ${appt.last_name}`,
     fecha: formatDate(appt.start_time),
@@ -52,7 +57,7 @@ export async function sendReminderForAppointment(appointmentId) {
     result = await sendViaTwilio(settings, appt.phone, message, settings.provider === "twilio_whatsapp");
   } else {
     // Modo simulado: no se envía nada real, solo se registra en consola y en el log.
-    console.log(`[recordatorio SIMULADO -> ${appt.phone}] ${message}`);
+    console.log(`[recordatorio SIMULADO clínica ${clinicId} -> ${appt.phone}] ${message}`);
     result = { ok: true, simulated: true };
   }
 
@@ -87,27 +92,28 @@ async function sendViaTwilio(settings, phone, message, isWhatsapp) {
   }
 }
 
-// Revisa citas 'programada' cuyo horario cae dentro de la ventana de
-// anticipación configurada (por defecto 24h) y todavía no tienen
-// recordatorio enviado, y lo dispara. Se llama periódicamente desde
-// server.js mientras el proceso esté corriendo.
+// Revisa, para CADA clínica que tenga los recordatorios activados, las
+// citas 'programada' cuyo horario cae dentro de su ventana de anticipación
+// configurada y todavía no tienen recordatorio enviado, y lo dispara.
+// Se llama periódicamente desde server.js mientras el proceso esté vivo.
 export async function checkAndSendDueReminders() {
-  const settings = getSettings();
-  if (!settings.enabled) return;
+  const activeSettings = db.prepare(`SELECT * FROM reminder_settings WHERE enabled = 1`).all();
 
-  const windowStart = new Date(Date.now() + (settings.hours_before - 0.5) * 3600 * 1000).toISOString();
-  const windowEnd = new Date(Date.now() + (settings.hours_before + 0.5) * 3600 * 1000).toISOString();
+  for (const settings of activeSettings) {
+    const windowStart = new Date(Date.now() + (settings.hours_before - 0.5) * 3600 * 1000).toISOString();
+    const windowEnd = new Date(Date.now() + (settings.hours_before + 0.5) * 3600 * 1000).toISOString();
 
-  const due = db
-    .prepare(
-      `SELECT id FROM appointments
-       WHERE status = 'programada' AND reminder_sent_at IS NULL
-       AND start_time BETWEEN ? AND ?`
-    )
-    .all(windowStart, windowEnd);
+    const due = db
+      .prepare(
+        `SELECT id FROM appointments
+         WHERE clinic_id = ? AND status = 'programada' AND reminder_sent_at IS NULL
+         AND start_time BETWEEN ? AND ?`
+      )
+      .all(settings.clinic_id, windowStart, windowEnd);
 
-  for (const row of due) {
-    await sendReminderForAppointment(row.id);
+    for (const row of due) {
+      await sendReminderForAppointment(row.id, settings.clinic_id);
+    }
   }
 }
 

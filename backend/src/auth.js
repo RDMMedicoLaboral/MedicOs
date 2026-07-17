@@ -23,7 +23,14 @@ const JWT_SECRET = loadOrCreateSecret();
 
 export function signToken(user) {
   return jwt.sign(
-    { id: user.id, username: user.username, full_name: user.full_name, role: user.role },
+    {
+      id: user.id,
+      username: user.username,
+      full_name: user.full_name,
+      role: user.role,
+      clinic_id: user.clinic_id,
+      clinic_name: user.clinic_name,
+    },
     JWT_SECRET,
     { expiresIn: "12h" }
   );

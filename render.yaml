@@ -11,9 +11,14 @@ services:
         value: production
       - key: JWT_SECRET
         generateValue: true
-      - key: DB_PATH
-        value: /data/agenda.db
-    disk:
-      name: ece-agenda-data
-      mountPath: /data
-      sizeGB: 1
+      - key: ADMIN_SECRET
+        sync: false
+    # ADMIN_SECRET: defínela tú (cualquier texto largo y difícil de adivinar).
+    # Es la clave que usas en /admin.html para dar de alta consultorios nuevos.
+    # NOTA: los discos persistentes de Render requieren un plan de pago.
+    # En el plan gratis, la base de datos SQLite vive en el sistema de
+    # archivos efímero del servicio: sobrevive mientras el servicio esté
+    # activo (incluyendo dormir/despertar por inactividad), pero se borra
+    # cada vez que hay un nuevo despliegue (cada git push). Para persistencia
+    # real y gratuita, ver la sección "Siguientes pasos" del README
+    # (Render Postgres gratis).

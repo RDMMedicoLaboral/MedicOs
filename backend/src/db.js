@@ -17,8 +17,18 @@ db.pragma("foreign_keys = ON");
 // la migración sea casi un copy-paste de los CREATE TABLE.
 
 db.exec(`
+-- Cada consultorio/médico que compra la plataforma es una "clínica".
+-- TODO lo demás (usuarios, pacientes, citas, expedientes, recetas,
+-- configuración) cuelga de una clínica y nunca se comparte entre clínicas.
+CREATE TABLE IF NOT EXISTS clinics (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS patients (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  clinic_id INTEGER NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
   first_name TEXT NOT NULL,
   last_name TEXT NOT NULL,
   birth_date TEXT,
@@ -35,8 +45,11 @@ CREATE TABLE IF NOT EXISTS patients (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE INDEX IF NOT EXISTS idx_patients_clinic ON patients(clinic_id);
+
 CREATE TABLE IF NOT EXISTS appointments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  clinic_id INTEGER NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
   patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
   start_time TEXT NOT NULL,         -- ISO 8601
   duration_minutes INTEGER NOT NULL DEFAULT 20,
@@ -51,6 +64,7 @@ CREATE TABLE IF NOT EXISTS appointments (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE INDEX IF NOT EXISTS idx_appointments_clinic ON appointments(clinic_id);
 CREATE INDEX IF NOT EXISTS idx_appointments_start_time ON appointments(start_time);
 CREATE INDEX IF NOT EXISTS idx_appointments_patient ON appointments(patient_id);
 
@@ -58,6 +72,7 @@ CREATE INDEX IF NOT EXISTS idx_appointments_patient ON appointments(patient_id);
 -- Una fila = una consulta. Vinculada opcionalmente a la cita que la originó.
 CREATE TABLE IF NOT EXISTS consultations (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  clinic_id INTEGER NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
   patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
   appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL,
   -- S: Subjetivo
@@ -78,10 +93,13 @@ CREATE TABLE IF NOT EXISTS consultations (
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE INDEX IF NOT EXISTS idx_consultations_clinic ON consultations(clinic_id);
 CREATE INDEX IF NOT EXISTS idx_consultations_patient ON consultations(patient_id);
 
--- Catálogo LOCAL de ejemplo con formato de CIE-11 (código + descripción),
--- solo para demostrar el flujo de autocompletado del buscador de diagnóstico.
+-- Catálogo GLOBAL (compartido entre todas las clínicas) con formato de
+-- CIE-11 (código + descripción), solo para demostrar el flujo de
+-- autocompletado del buscador de diagnóstico. No contiene datos de
+-- pacientes, así que no hay problema en compartirlo entre clínicas.
 -- IMPORTANTE: estos códigos son ilustrativos. Antes de usar el sistema en un
 -- entorno clínico real, sustituir esta tabla por una integración con la API
 -- oficial de la OMS (ICD-11 API, https://icd.who.int/icdapi), que requiere
@@ -91,10 +109,8 @@ CREATE TABLE IF NOT EXISTS cie11_catalog (
   label TEXT NOT NULL
 );
 
--- Catálogo LOCAL de ejemplo de medicamentos (vademécum simplificado), solo
--- para demostrar el autocompletado del recetario. En producción conviene
--- sustituirlo por un catálogo/vademécum completo y actualizado (regulador
--- sanitario local o proveedor comercial).
+-- Catálogo GLOBAL de ejemplo de medicamentos (vademécum simplificado, se
+-- comparte entre clínicas por la misma razón que el catálogo CIE-11).
 CREATE TABLE IF NOT EXISTS medications_catalog (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   generic_name TEXT NOT NULL,
@@ -102,10 +118,9 @@ CREATE TABLE IF NOT EXISTS medications_catalog (
   presentation TEXT NOT NULL -- ej. "Tabletas 500 mg"
 );
 
--- Perfil del médico que emite las recetas (fila única, id = 1, hasta que
--- exista login multiusuario).
+-- Perfil del médico que emite las recetas: una fila POR CLÍNICA.
 CREATE TABLE IF NOT EXISTS doctor_profile (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
+  clinic_id INTEGER PRIMARY KEY REFERENCES clinics(id) ON DELETE CASCADE,
   full_name TEXT,
   professional_license TEXT, -- cédula profesional
   specialty TEXT,
@@ -120,6 +135,7 @@ CREATE TABLE IF NOT EXISTS doctor_profile (
 -- el catálogo se actualice después).
 CREATE TABLE IF NOT EXISTS prescriptions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  clinic_id INTEGER NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
   patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
   consultation_id INTEGER REFERENCES consultations(id) ON DELETE SET NULL,
   qr_token TEXT NOT NULL UNIQUE,
@@ -134,14 +150,33 @@ CREATE TABLE IF NOT EXISTS prescriptions (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE INDEX IF NOT EXISTS idx_prescriptions_clinic ON prescriptions(clinic_id);
 CREATE INDEX IF NOT EXISTS idx_prescriptions_patient ON prescriptions(patient_id);
 CREATE INDEX IF NOT EXISTS idx_prescriptions_qr ON prescriptions(qr_token);
 
--- Configuración de recordatorios automáticos (fila única, id = 1).
+-- Usuarios del sistema. Dos roles, siempre dentro de UNA clínica:
+--   medico     -> acceso total dentro de su propia clínica.
+--   secretaria -> solo agenda y datos de contacto de SU clínica; nunca
+--                 historial médico, diagnósticos ni recetas.
+-- Las cuentas nuevas las crea el administrador de la plataforma (tú), no
+-- hay registro público — ver routes/admin.js.
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  clinic_id INTEGER NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  full_name TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('medico', 'secretaria')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_clinic ON users(clinic_id);
+
+-- Configuración de recordatorios automáticos: una fila POR CLÍNICA.
 -- provider: 'simulado' (no envía nada real, solo lo registra — es el modo
 -- por defecto para poder probar el flujo sin contratar nada) | 'twilio_whatsapp' | 'twilio_sms'.
 CREATE TABLE IF NOT EXISTS reminder_settings (
-  id INTEGER PRIMARY KEY CHECK (id = 1),
+  clinic_id INTEGER PRIMARY KEY REFERENCES clinics(id) ON DELETE CASCADE,
   provider TEXT NOT NULL DEFAULT 'simulado',
   twilio_account_sid TEXT,
   twilio_auth_token TEXT,
@@ -162,23 +197,11 @@ CREATE TABLE IF NOT EXISTS reminder_log (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Usuarios del sistema. Dos roles:
---   medico     -> acceso total (agenda, expediente, recetas, perfil).
---   secretaria -> solo agenda y datos de contacto; nunca historial médico,
---                 diagnósticos ni recetas (ver rutas protegidas en el backend).
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  username TEXT NOT NULL UNIQUE,
-  password_hash TEXT NOT NULL,
-  full_name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('medico', 'secretaria')),
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
 -- Bitácora de auditoría mínima (quién/cuándo/qué), tal como exige el
 -- documento fuente. En el MVP se registra desde las rutas.
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  clinic_id INTEGER,
   actor TEXT NOT NULL DEFAULT 'sistema',
   action TEXT NOT NULL,       -- create | update | delete | status_change
   entity TEXT NOT NULL,       -- patient | appointment
@@ -251,10 +274,10 @@ if (medsSeedCount === 0) {
   insertMany(seed);
 }
 
-export function logAudit({ actor = "sistema", action, entity, entityId, detail }) {
+export function logAudit({ clinicId = null, actor = "sistema", action, entity, entityId, detail }) {
   db.prepare(
-    `INSERT INTO audit_log (actor, action, entity, entity_id, detail) VALUES (?, ?, ?, ?, ?)`
-  ).run(actor, action, entity, entityId ?? null, detail ? JSON.stringify(detail) : null);
+    `INSERT INTO audit_log (clinic_id, actor, action, entity, entity_id, detail) VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(clinicId, actor, action, entity, entityId ?? null, detail ? JSON.stringify(detail) : null);
 }
 
 export function newQrToken() {

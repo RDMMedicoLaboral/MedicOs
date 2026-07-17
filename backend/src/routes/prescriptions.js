@@ -5,9 +5,9 @@ import { db, logAudit, newQrToken } from "../db.js";
 
 export const prescriptionsRouter = Router();
 
-function getDoctorProfile() {
+function getDoctorProfile(clinicId) {
   return (
-    db.prepare(`SELECT * FROM doctor_profile WHERE id = 1`).get() || {
+    db.prepare(`SELECT * FROM doctor_profile WHERE clinic_id = ?`).get(clinicId) || {
       full_name: "",
       professional_license: "",
       specialty: "",
@@ -28,7 +28,7 @@ function calcAge(birthDate) {
   return age;
 }
 
-// POST /api/prescriptions -> crea la receta (toma snapshot del perfil del médico)
+// POST /api/prescriptions -> crea la receta (toma snapshot del perfil del médico de la clínica)
 prescriptionsRouter.post("/", (req, res) => {
   const { patient_id, consultation_id, items, instructions } = req.body;
 
@@ -37,20 +37,21 @@ prescriptionsRouter.post("/", (req, res) => {
     return res.status(400).json({ error: "Agrega al menos un medicamento" });
   }
 
-  const patient = db.prepare(`SELECT id FROM patients WHERE id = ?`).get(patient_id);
+  const patient = db.prepare(`SELECT id FROM patients WHERE id = ? AND clinic_id = ?`).get(patient_id, req.user.clinic_id);
   if (!patient) return res.status(400).json({ error: "El paciente no existe" });
 
-  const doctor = getDoctorProfile();
+  const doctor = getDoctorProfile(req.user.clinic_id);
   const qr_token = newQrToken();
 
   const result = db
     .prepare(
       `INSERT INTO prescriptions
-        (patient_id, consultation_id, qr_token, items_json, instructions,
+        (clinic_id, patient_id, consultation_id, qr_token, items_json, instructions,
          doctor_name, doctor_license, doctor_specialty, clinic_name, clinic_address, clinic_phone)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
+      req.user.clinic_id,
       patient_id,
       consultation_id ?? null,
       qr_token,
@@ -64,23 +65,23 @@ prescriptionsRouter.post("/", (req, res) => {
       doctor.clinic_phone
     );
 
-  logAudit({ actor: req.user.username, action: "create", entity: "prescription", entityId: result.lastInsertRowid });
+  logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "create", entity: "prescription", entityId: result.lastInsertRowid });
 
   const prescription = db.prepare(`SELECT * FROM prescriptions WHERE id = ?`).get(result.lastInsertRowid);
   res.status(201).json({ ...prescription, items: JSON.parse(prescription.items_json) });
 });
 
-// GET /api/prescriptions/patient/:patientId -> historial de recetas del paciente
+// GET /api/prescriptions/patient/:patientId -> historial de recetas del paciente, dentro de la clínica
 prescriptionsRouter.get("/patient/:patientId", (req, res) => {
   const rows = db
-    .prepare(`SELECT * FROM prescriptions WHERE patient_id = ? ORDER BY created_at DESC`)
-    .all(req.params.patientId);
+    .prepare(`SELECT * FROM prescriptions WHERE patient_id = ? AND clinic_id = ? ORDER BY created_at DESC`)
+    .all(req.params.patientId, req.user.clinic_id);
   res.json(rows.map((r) => ({ ...r, items: JSON.parse(r.items_json) })));
 });
 
-// GET /api/prescriptions/:id/pdf -> genera y transmite el PDF con QR
+// GET /api/prescriptions/:id/pdf -> genera y transmite el PDF con QR (validado por clínica)
 prescriptionsRouter.get("/:id/pdf", async (req, res) => {
-  const rx = db.prepare(`SELECT * FROM prescriptions WHERE id = ?`).get(req.params.id);
+  const rx = db.prepare(`SELECT * FROM prescriptions WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
   if (!rx) return res.status(404).json({ error: "Receta no encontrada" });
 
   const patient = db.prepare(`SELECT * FROM patients WHERE id = ?`).get(rx.patient_id);

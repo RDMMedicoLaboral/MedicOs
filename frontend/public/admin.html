@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MedicOs · Administración</title>
+<style>
+  :root {
+    --bg: #eef0e8; --surface: #fffdf9; --ink: #1f2a24; --ink-soft: #55625a;
+    --accent: #3d6b5c; --accent-soft: #dce6de; --line: #d8d9cd; --danger: #b23a3a;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family: system-ui, sans-serif; padding: 32px 16px; }
+  .wrap { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 1.3rem; margin-bottom: 4px; }
+  h1 .medic { color: var(--ink); }
+  h1 .os { color: var(--accent); }
+  .sub { color: var(--ink-soft); font-size: 0.85rem; margin-bottom: 24px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 20px; margin-bottom: 24px; }
+  label { display:block; font-size: 0.8rem; color: var(--ink-soft); margin-top: 12px; margin-bottom: 4px; }
+  input, select { width:100%; padding: 9px 10px; border:1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--ink); font-size: 0.95rem; }
+  button { margin-top: 16px; background: var(--accent); color: var(--surface); border:none; padding: 10px 16px; border-radius: 8px; cursor:pointer; font-weight:600; }
+  button.secondary { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+  button.danger { background: var(--danger); }
+  .msg { margin-top: 12px; padding: 10px; border-radius: 7px; font-size: 0.85rem; white-space: pre-wrap; }
+  .msg.ok { background: var(--accent-soft); color: var(--accent); }
+  .msg.error { background: #fbe9e7; color: var(--danger); }
+  table { width:100%; border-collapse: collapse; margin-top: 10px; font-size: 0.85rem; }
+  th, td { text-align:left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  th { color: var(--ink-soft); font-weight:600; }
+  .gate { display:flex; gap:8px; }
+  .gate input { flex:1; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span class="medic">Medic</span><span class="os">Os</span> · Administración</h1>
+  <div class="sub">Esta página es solo para ti (el dueño de la plataforma). Aquí das de alta un consultorio nuevo con su primera cuenta de médico.</div>
+
+  <div class="card" id="gateCard">
+    <label for="secret">Clave de administrador</label>
+    <div class="gate">
+      <input id="secret" type="password" placeholder="La misma que pusiste en ADMIN_SECRET" />
+      <button onclick="unlock()">Entrar</button>
+    </div>
+    <div id="gateMsg"></div>
+  </div>
+
+  <div id="mainArea" class="hidden">
+    <div class="card">
+      <strong>Crear consultorio nuevo</strong>
+      <label for="clinicName">Nombre del consultorio</label>
+      <input id="clinicName" placeholder="Consultorio Dr. García" />
+      <label for="fullName">Nombre completo del médico</label>
+      <input id="fullName" placeholder="Dr. Juan García" />
+      <label for="username">Usuario (para iniciar sesión)</label>
+      <input id="username" placeholder="dr.garcia" />
+      <label for="password">Contraseña temporal</label>
+      <input id="password" type="text" placeholder="Mínimo 6 caracteres" />
+      <button onclick="createClinic()">Crear consultorio</button>
+      <div id="createMsg"></div>
+    </div>
+
+    <div class="card">
+      <strong>Consultorios existentes</strong>
+      <table id="clinicsTable">
+        <thead><tr><th>Nombre</th><th>Usuarios</th><th>Pacientes</th><th>Creado</th><th></th></tr></thead>
+        <tbody id="clinicsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  let SECRET = sessionStorage.getItem('medicos_admin_secret') || '';
+
+  function showMsg(id, text, ok) {
+    const el = document.getElementById(id);
+    el.className = 'msg ' + (ok ? 'ok' : 'error');
+    el.textContent = text;
+  }
+
+  async function api(path, options = {}) {
+    const res = await fetch('/api/admin' + path, {
+      ...options,
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Secret': SECRET, ...(options.headers || {}) },
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || ('Error ' + res.status));
+    return body;
+  }
+
+  async function unlock() {
+    SECRET = document.getElementById('secret').value.trim();
+    try {
+      await api('/clinics');
+      sessionStorage.setItem('medicos_admin_secret', SECRET);
+      document.getElementById('gateCard').classList.add('hidden');
+      document.getElementById('mainArea').classList.remove('hidden');
+      loadClinics();
+    } catch (err) {
+      showMsg('gateMsg', err.message, false);
+    }
+  }
+
+  async function loadClinics() {
+    const rows = await api('/clinics');
+    const body = document.getElementById('clinicsBody');
+    body.innerHTML = rows.map(c => `
+      <tr>
+        <td>${c.name}</td>
+        <td>${c.user_count}</td>
+        <td>${c.patient_count}</td>
+        <td>${new Date(c.created_at.replace(' ', 'T')).toLocaleDateString('es-MX')}</td>
+        <td><button class="danger" onclick="deleteClinic(${c.id}, '${c.name.replace(/'/g, "")}')">Eliminar</button></td>
+      </tr>
+    `).join('') || '<tr><td colspan="5">Todavía no hay consultorios.</td></tr>';
+  }
+
+  async function createClinic() {
+    const clinic_name = document.getElementById('clinicName').value.trim();
+    const full_name = document.getElementById('fullName').value.trim();
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value.trim();
+    try {
+      const result = await api('/clinics', { method: 'POST', body: JSON.stringify({ clinic_name, full_name, username, password }) });
+      showMsg('createMsg', `Listo. Comparte estos datos con el médico:\nUsuario: ${result.user.username}\nContraseña: ${password}`, true);
+      document.getElementById('clinicName').value = '';
+      document.getElementById('fullName').value = '';
+      document.getElementById('username').value = '';
+      document.getElementById('password').value = '';
+      loadClinics();
+    } catch (err) {
+      showMsg('createMsg', err.message, false);
+    }
+  }
+
+  async function deleteClinic(id, name) {
+    if (!confirm('¿Eliminar "' + name + '" y TODOS sus pacientes, citas y recetas? Esto no se puede deshacer.')) return;
+    await api('/clinics/' + id, { method: 'DELETE' });
+    loadClinics();
+  }
+
+  if (SECRET) unlock();
+</script>
+</body>
+</html>

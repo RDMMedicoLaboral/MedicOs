@@ -1,31 +1,29 @@
-# Agenda + Expediente + Receta + Login/Roles + Recordatorios — MVP (Módulos 1-5)
+# MedicOs — Plataforma multi-consultorio (SaaS) para varios médicos
 
-MVP funcional de cinco módulos de la radiografía del ECE:
+MVP funcional de una plataforma que **varios médicos independientes,
+que ni se conocen entre sí, pueden usar al mismo tiempo sin ver los datos
+del otro**. Cada consultorio (clínica) tiene sus propios pacientes, citas,
+expedientes, recetas, secretarias y configuración — completamente
+aislados de los demás a nivel de base de datos, no solo de pantalla.
 
-- **Módulo 1 — Agenda**: gestión de pacientes, creación de citas y flujo de
-  estatus en tiempo real (Programada → Confirmada → En sala de espera →
-  En consulta → Finalizada, con salidas a Cancelada / No asistió).
-- **Módulo 2 — Expediente Clínico**: al dar clic en "Iniciar consulta" se
-  abre la ficha del paciente con su historial cronológico a la izquierda y
-  una nota de evolución nueva (formato **SOAP**) a la derecha, con IMC
-  calculado automáticamente y buscador de diagnóstico tipo CIE-11.
-- **Módulo 3 — Receta Electrónica**: buscador de medicamentos (vademécum),
-  dosis/frecuencia/duración, **PDF descargable con código QR** de
-  validación, y endpoint público para verificar la autenticidad de una
-  receta escaneando el QR.
-- **Login y roles**: cuentas de **Médico** (acceso total) y **Secretaria**
-  (solo agenda y contacto; el backend le oculta y bloquea con 403 todo lo
-  clínico).
-- **Módulo — Recordatorios automáticos (WhatsApp/SMS)**: desde "Recordatorios"
-  en la barra lateral (solo médico) se configura la plantilla del mensaje y
-  las horas de anticipación. El sistema revisa cada 15 minutos qué citas
-  entran en la ventana y envía el recordatorio; si el paciente responde
-  **1** su cita se confirma sola, si responde **2** se cancela sola —
-  exactamente el flujo descrito en el documento original. También hay un
-  botón "Enviar recordatorio" manual en cada cita, para probar sin esperar.
+Módulos incluidos:
 
-No incluye todavía: migración a PostgreSQL ni despliegue fuera de
-Codespaces — son los siguientes pasos naturales sobre esta base.
+- **Agenda**: gestión de pacientes, creación de citas y flujo de estatus
+  en tiempo real (Programada → Confirmada → En sala de espera → En
+  consulta → Finalizada, con salidas a Cancelada / No asistió).
+- **Expediente Clínico**: nota de evolución formato **SOAP**, IMC
+  automático, buscador de diagnóstico tipo CIE-11.
+- **Receta Electrónica**: buscador de medicamentos, **PDF con código QR**
+  de validación.
+- **Login y roles**: **Médico** (acceso total a su clínica) y
+  **Secretaria** (solo agenda y contacto de su clínica; el backend le
+  bloquea con 403 todo lo clínico).
+- **Recordatorios automáticos** (WhatsApp/SMS vía Twilio, o modo
+  simulado): confirma o cancela la cita sola cuando el paciente responde.
+- **Multi-consultorio (multi-tenant)**: tú, como dueño de la plataforma,
+  das de alta cada consultorio nuevo desde una página de administración
+  (`/admin.html`) — no hay registro público. Cada médico solo ve lo suyo.
+
 
 ## Estructura
 
@@ -36,6 +34,15 @@ ece-agenda/
 ```
 
 ## Cómo correrlo
+
+**0. Define tu clave de administrador** (una sola vez). En la terminal del
+backend, antes de `npm run dev`, corre:
+```bash
+export ADMIN_SECRET="elige-una-clave-larga-y-dificil-de-adivinar"
+```
+(en Codespaces tienes que ponerlo en cada terminal nueva que abras del
+backend, o agregarlo a un archivo `.env` — ver más abajo). Esta clave es
+tuya, del dueño de la plataforma — no se la das a los médicos.
 
 **1. Backend**
 ```bash
@@ -51,10 +58,32 @@ npm install
 npm run dev         # http://localhost:5173
 ```
 
-**Primer uso**: pantalla de configuración para crear la cuenta de Médico,
-luego (opcional) "Gestionar usuarios" para crear Secretarias, "Perfil del
-médico" para los datos de la receta, y "Recordatorios" para activar los
-avisos automáticos.
+**3. Da de alta el primer consultorio.** Abre
+`http://localhost:5173/admin.html` (nota: es `/admin.html`, no la app
+normal). Ahí metes la `ADMIN_SECRET` que definiste en el paso 0, y llenas
+el formulario: nombre del consultorio, nombre del médico, usuario y
+contraseña. Esos son los datos que le compartes al médico para que entre
+a `http://localhost:5173` (la app normal) con su usuario y contraseña.
+
+Repite el paso 3 cada vez que quieras dar de alta a un médico nuevo —
+cada uno queda completamente aislado de los demás.
+
+**Dentro de la app normal**, cada médico puede entrar a "Gestionar
+usuarios" para crear cuentas de Secretaria (solo para su propia clínica),
+"Perfil del médico" para los datos de su receta, y "Recordatorios" para
+activar los avisos automáticos — todo eso ya sin necesitar tu ayuda.
+
+### Guardar la ADMIN_SECRET permanentemente en Codespaces (opcional)
+
+Para no tener que escribir el `export` cada vez que abres una terminal
+nueva, crea un archivo `backend/.env` con:
+```
+ADMIN_SECRET=elige-una-clave-larga-y-dificil-de-adivinar
+```
+y agrega `dotenv/config` al inicio de `backend/src/server.js`
+(`import "dotenv/config";`) después de instalar `npm install dotenv` en
+`backend/`. (No es obligatorio para el MVP — el `export` manual funciona
+igual de bien mientras estés probando.)
 
 ## Cómo probar los recordatorios SIN contratar nada
 
@@ -113,30 +142,41 @@ a "Confirmada" en la agenda.
 Codespaces es genial para desarrollar, pero su URL cambia cada vez que
 recreas el Codespace — no sirve para dejar la app corriendo de forma
 permanente (ni para que el webhook de Twilio o el QR de las recetas
-funcionen siempre). Para eso, despliega en **Render** (tiene plan
-gratuito, y todo se hace desde el navegador, sin instalar nada en tu
-laptop):
+funcionen siempre). Para eso, despliega en **Render** (plan gratuito,
+todo desde el navegador):
 
-1. Ve a [render.com](https://render.com) y crea una cuenta (puedes
-   entrar directo con tu cuenta de GitHub).
-2. En el dashboard, clic en **"New +" → "Blueprint"**.
-3. Conecta tu repositorio de GitHub (el mismo que usas en Codespaces,
-   `ConsultorioMedico` o como lo hayas llamado).
-4. Render va a detectar el archivo `render.yaml` de este proyecto y te va
-   a mostrar el servicio `ece-agenda` listo para crear, con un disco
-   persistente de 1 GB para la base de datos. Clic en **"Apply"**.
-5. Espera unos minutos mientras Render instala y compila todo (lo
-   verás en los logs, similar a lo que ves en la terminal de Codespaces).
-6. Cuando termine, Render te da una URL pública fija, tipo
-   `https://ece-agenda.onrender.com` — ábrela y verás la misma pantalla de
-   "Configura la primera cuenta" que viste en Codespaces.
+1. Ve a [render.com](https://render.com) y entra con tu cuenta de GitHub.
+2. Clic en **"New +" → "Web Service"**.
+3. Conecta tu repositorio de GitHub (el mismo de Codespaces).
+4. En el formulario de configuración, llena:
+   - **Build Command**: `cd frontend && npm install && npm run build && cd ../backend && npm install`
+   - **Start Command**: `cd backend && npm start`
+   - **Instance Type**: Free
+5. Antes de crear, abre la sección **"Advanced"** y agrega estas variables
+   de entorno:
+   - `NODE_ENV` = `production`
+   - `ADMIN_SECRET` = (una clave larga que tú inventes — la usarás en `/admin.html` para dar de alta consultorios)
+   - (`JWT_SECRET` es opcional — si no la pones, el backend genera una
+     sola vez y punto)
+6. Clic en **"Create Web Service"**. Espera unos minutos mientras
+   instala y compila (verás los logs en vivo, parecido a la terminal de
+   Codespaces).
+7. Cuando termine, Render te da una URL pública fija, tipo
+   `https://ece-agenda.onrender.com`. Ve primero a
+   `https://ece-agenda.onrender.com/admin.html` para dar de alta el primer
+   consultorio (usando la `ADMIN_SECRET` que pusiste en el paso 5); con
+   esas credenciales, el médico ya puede entrar a la URL normal.
 
-**Nota sobre el plan gratis de Render**: el servicio "se duerme" tras
-~15 minutos sin uso y tarda unos segundos en despertar con la primera
-visita — normal en el plan gratis, no es un error. Para un consultorio en
-producción real conviene un plan de pago que no se duerma (así los
-recordatorios de las 15 en 15 minutos y el webhook de Twilio funcionan
-siempre).
+**⚠️ Importante sobre el plan gratis — léelo antes de cargar pacientes
+reales:** en el plan gratis, el archivo de la base de datos (SQLite) vive
+en el disco del servicio, que Render **borra cada vez que hay un nuevo
+despliegue** (o sea, cada vez que actualizas el código con un git push).
+Sobrevive mientras no vuelvas a desplegar — incluyendo cuando el servicio
+"se duerme" tras ~15 min sin uso y despierta solo con la siguiente
+visita, eso sí es normal y no borra nada. Pero para tener una base de
+datos que **nunca** se borre (necesario para usarlo con pacientes de
+verdad), el siguiente paso es conectar una base de datos Postgres real
+(Render también la ofrece gratis) — ver "Siguientes pasos" abajo.
 
 Una vez desplegado ahí, esa es la URL que le das a Twilio como webhook
 (`https://tu-app.onrender.com/api/reminders/webhook`) y la que queda
@@ -145,8 +185,9 @@ cambia.
 
 ## Siguientes pasos sugeridos
 
-1. Migrar de SQLite a PostgreSQL (Render también ofrece bases de datos
-   Postgres gestionadas gratis, si prefieres no depender del disco).
+1. **Migrar de SQLite a PostgreSQL** (Render ofrece una base Postgres
+   gratis) — esto es lo que resuelve de raíz la limitación de
+   persistencia del plan gratis descrita arriba.
 2. Conectar el buscador de diagnóstico a la API oficial de la OMS (ICD-11)
    y el vademécum a un catálogo de medicamentos vigente.
 3. Mover el envío de recordatorios a un worker/cron independiente del
