@@ -10,8 +10,11 @@ doctorProfileRouter.get("/", (req, res) => {
     profile || {
       clinic_id: req.user.clinic_id,
       full_name: "",
+      personal_id: "",
       professional_license: "",
       specialty: "",
+      email: "",
+      city: "",
       clinic_name: "",
       clinic_address: "",
       clinic_phone: "",
@@ -20,22 +23,39 @@ doctorProfileRouter.get("/", (req, res) => {
 });
 
 doctorProfileRouter.put("/", requireRole("medico"), (req, res) => {
-  const { full_name, professional_license, specialty, clinic_name, clinic_address, clinic_phone } = req.body;
+  const {
+    full_name,
+    personal_id,
+    professional_license,
+    specialty,
+    email,
+    city,
+    clinic_name,
+    clinic_address,
+    clinic_phone,
+  } = req.body;
   db.prepare(
-    `INSERT INTO doctor_profile (clinic_id, full_name, professional_license, specialty, clinic_name, clinic_address, clinic_phone)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO doctor_profile
+      (clinic_id, full_name, personal_id, professional_license, specialty, email, city, clinic_name, clinic_address, clinic_phone)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(clinic_id) DO UPDATE SET
        full_name = excluded.full_name,
+       personal_id = excluded.personal_id,
        professional_license = excluded.professional_license,
        specialty = excluded.specialty,
+       email = excluded.email,
+       city = excluded.city,
        clinic_name = excluded.clinic_name,
        clinic_address = excluded.clinic_address,
        clinic_phone = excluded.clinic_phone`
   ).run(
     req.user.clinic_id,
     full_name ?? "",
+    personal_id ?? "",
     professional_license ?? "",
     specialty ?? "",
+    email ?? "",
+    city ?? "",
     clinic_name ?? "",
     clinic_address ?? "",
     clinic_phone ?? ""

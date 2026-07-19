@@ -59,6 +59,11 @@ patientsRouter.post("/", (req, res) => {
     allergies,
     chronic_conditions,
     notes,
+    id_number,
+    address,
+    workplace,
+    job_title,
+    clinical_history_number,
   } = body;
 
   if (!first_name || !last_name) {
@@ -70,8 +75,9 @@ patientsRouter.post("/", (req, res) => {
       `INSERT INTO patients
         (clinic_id, first_name, last_name, birth_date, gender, phone, email,
          emergency_contact_name, emergency_contact_phone, blood_type,
-         allergies, chronic_conditions, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         allergies, chronic_conditions, notes,
+         id_number, address, workplace, job_title, clinical_history_number)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       req.user.clinic_id,
@@ -86,7 +92,12 @@ patientsRouter.post("/", (req, res) => {
       blood_type ?? null,
       allergies ?? null,
       chronic_conditions ?? null,
-      notes ?? null
+      notes ?? null,
+      id_number ?? null,
+      address ?? null,
+      workplace ?? null,
+      job_title ?? null,
+      clinical_history_number ?? null
     );
 
   logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "create", entity: "patient", entityId: result.lastInsertRowid });
@@ -109,6 +120,7 @@ patientsRouter.put("/:id", (req, res) => {
       first_name = ?, last_name = ?, birth_date = ?, gender = ?, phone = ?,
       email = ?, emergency_contact_name = ?, emergency_contact_phone = ?,
       blood_type = ?, allergies = ?, chronic_conditions = ?, notes = ?,
+      id_number = ?, address = ?, workplace = ?, job_title = ?, clinical_history_number = ?,
       updated_at = datetime('now')
      WHERE id = ? AND clinic_id = ?`
   ).run(
@@ -124,6 +136,11 @@ patientsRouter.put("/:id", (req, res) => {
     merged.allergies,
     merged.chronic_conditions,
     merged.notes,
+    merged.id_number,
+    merged.address,
+    merged.workplace,
+    merged.job_title,
+    merged.clinical_history_number,
     req.params.id,
     req.user.clinic_id
   );

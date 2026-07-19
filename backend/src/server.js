@@ -16,6 +16,7 @@ import { cie11Router } from "./routes/cie11.js";
 import { medicationsRouter } from "./routes/medications.js";
 import { doctorProfileRouter } from "./routes/doctorProfile.js";
 import { prescriptionsRouter } from "./routes/prescriptions.js";
+import { certificatesRouter } from "./routes/certificates.js";
 import { remindersRouter, remindersWebhookRouter } from "./routes/reminders.js";
 import { checkAndSendDueReminders } from "./reminders.js";
 
@@ -56,6 +57,7 @@ app.use("/api/doctor-profile", doctorProfileRouter);
 
 // Exclusivo del médico: expediente clínico, recetas.
 app.use("/api/prescriptions", requireRole("medico"), prescriptionsRouter);
+app.use("/api/certificates", requireRole("medico"), certificatesRouter);
 app.use("/api", requireRole("medico"), consultationsRouter);
 
 // Catálogos compartidos (CIE-11, medicamentos): solo médico, pero NO están

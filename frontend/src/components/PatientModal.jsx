@@ -13,6 +13,11 @@ const EMPTY = {
   blood_type: "",
   allergies: "",
   chronic_conditions: "",
+  id_number: "",
+  address: "",
+  workplace: "",
+  job_title: "",
+  clinical_history_number: "",
 };
 
 export default function PatientModal({ isMedico = true, onClose, onCreated }) {
@@ -81,6 +86,26 @@ export default function PatientModal({ isMedico = true, onClose, onCreated }) {
           <label>
             Tipo de sangre
             <input value={form.blood_type} onChange={set("blood_type")} placeholder="O+" />
+          </label>
+          <label>
+            Número de cédula
+            <input value={form.id_number} onChange={set("id_number")} />
+          </label>
+          <label className="span-2">
+            Dirección domiciliaria
+            <input value={form.address} onChange={set("address")} />
+          </label>
+          <label>
+            Institución o empresa
+            <input value={form.workplace} onChange={set("workplace")} />
+          </label>
+          <label>
+            Puesto de trabajo
+            <input value={form.job_title} onChange={set("job_title")} />
+          </label>
+          <label>
+            Número de historia clínica
+            <input value={form.clinical_history_number} onChange={set("clinical_history_number")} />
           </label>
           {isMedico && (
             <>

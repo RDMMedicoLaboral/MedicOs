@@ -45,6 +45,20 @@ if (needsFullReset()) {
   db.pragma("foreign_keys = ON");
 }
 
+// Migración aditiva segura: agrega columnas nuevas a tablas que ya existen,
+// SIN borrar nada. A diferencia del reset de arriba (que solo aplicaba al
+// cambio grande de "un consultorio" -> "multi-clínica"), este patrón es el
+// que se debe usar de aquí en adelante para cualquier columna nueva.
+function ensureColumn(table, column, definition) {
+  const tableExists = db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`).get(table);
+  if (!tableExists) return; // la tabla se crea más abajo con la columna incluida
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+  const hasColumn = columns.some((c) => c.name === column);
+  if (!hasColumn) {
+    db.exec(`ALTER TABLE "${table}" ADD COLUMN ${column} ${definition}`);
+  }
+}
+
 // NOTA: Para producción, migrar a PostgreSQL (recomendado en el documento
 // original) por el cifrado en reposo (AES-256), backups gestionados y
 // concurrencia. El esquema de abajo es intencionalmente compatible con
@@ -189,6 +203,55 @@ CREATE INDEX IF NOT EXISTS idx_prescriptions_clinic ON prescriptions(clinic_id);
 CREATE INDEX IF NOT EXISTS idx_prescriptions_patient ON prescriptions(patient_id);
 CREATE INDEX IF NOT EXISTS idx_prescriptions_qr ON prescriptions(qr_token);
 
+-- Certificados médicos (incapacidad / reposo / aislamiento / teletrabajo).
+-- Igual que en prescriptions: se guarda una "foto" (snapshot) de los datos
+-- del paciente, del médico y del establecimiento en el momento de emitir
+-- el certificado, porque un certificado ya emitido no debe cambiar aunque
+-- el paciente o el perfil del médico se actualicen después.
+CREATE TABLE IF NOT EXISTS certificates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  clinic_id INTEGER NOT NULL REFERENCES clinics(id) ON DELETE CASCADE,
+  patient_id INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+  consultation_id INTEGER REFERENCES consultations(id) ON DELETE SET NULL,
+
+  -- C) Motivo de aislamiento/enfermedad
+  diagnosis_code TEXT,
+  diagnosis_label TEXT,
+  clinical_picture TEXT,       -- "Cuadro clínico"
+  presents_symptoms INTEGER NOT NULL DEFAULT 1, -- 1 = SI, 0 = NO
+  certificate_type TEXT NOT NULL DEFAULT 'enfermedad', -- 'enfermedad' | 'aislamiento' | 'teletrabajo'
+  description TEXT,            -- síntomas / descripción adicional
+  days_granted INTEGER NOT NULL,
+  date_from TEXT NOT NULL,     -- YYYY-MM-DD
+  date_to TEXT NOT NULL,       -- YYYY-MM-DD
+
+  -- B) Datos del paciente (snapshot al momento de emitir)
+  patient_full_name TEXT,
+  patient_address TEXT,
+  patient_phone TEXT,
+  patient_email TEXT,
+  patient_institution TEXT,
+  patient_job_title TEXT,
+  patient_id_number TEXT,
+  patient_clinical_history_number TEXT,
+
+  -- A) Datos del establecimiento / médico (snapshot al momento de emitir)
+  doctor_name TEXT,
+  doctor_personal_id TEXT,     -- C.I. del médico
+  doctor_license TEXT,         -- Reg. SENESCYT / cédula profesional
+  doctor_specialty TEXT,
+  doctor_email TEXT,
+  clinic_name TEXT,
+  clinic_address TEXT,
+  clinic_phone TEXT,
+  issue_place TEXT,            -- ciudad de emisión, ej. "Manta"
+
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_certificates_clinic ON certificates(clinic_id);
+CREATE INDEX IF NOT EXISTS idx_certificates_patient ON certificates(patient_id);
+
 -- Usuarios del sistema. Dos roles, siempre dentro de UNA clínica:
 --   medico     -> acceso total dentro de su propia clínica.
 --   secretaria -> solo agenda y datos de contacto de SU clínica; nunca
@@ -245,6 +308,17 @@ CREATE TABLE IF NOT EXISTS audit_log (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 `);
+
+// Columnas nuevas agregadas después del lanzamiento inicial, para no
+// perder datos ya existentes en producción (ver ensureColumn arriba).
+ensureColumn("doctor_profile", "personal_id", "TEXT");      // C.I. del médico
+ensureColumn("doctor_profile", "email", "TEXT");
+ensureColumn("doctor_profile", "city", "TEXT");              // ciudad de emisión (ej. "Manta")
+ensureColumn("patients", "id_number", "TEXT");                // cédula del paciente
+ensureColumn("patients", "address", "TEXT");
+ensureColumn("patients", "workplace", "TEXT");                // institución o empresa
+ensureColumn("patients", "job_title", "TEXT");                // puesto de trabajo
+ensureColumn("patients", "clinical_history_number", "TEXT");
 
 const cie11SeedCount = db.prepare(`SELECT COUNT(*) AS n FROM cie11_catalog`).get().n;
 if (cie11SeedCount === 0) {

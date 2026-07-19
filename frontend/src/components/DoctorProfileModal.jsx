@@ -30,7 +30,7 @@ export default function DoctorProfileModal({ onClose, onSaved }) {
         <div className="modal-tab" style={{ background: "#5B6B5F" }} />
         <h2 className="modal-title">Perfil del médico</h2>
         <p className="hint" style={{ marginTop: -8, marginBottom: 14 }}>
-          Estos datos aparecen en el encabezado de cada receta que generes.
+          Estos datos aparecen en el encabezado de cada receta y certificado médico que generes.
         </p>
         <form onSubmit={handleSubmit} className="form-grid">
           <label className="span-2">
@@ -38,12 +38,20 @@ export default function DoctorProfileModal({ onClose, onSaved }) {
             <input value={form.full_name} onChange={set("full_name")} placeholder="Dra. Ana Torres" autoFocus />
           </label>
           <label>
-            Cédula profesional
+            C.I. (cédula personal)
+            <input value={form.personal_id} onChange={set("personal_id")} />
+          </label>
+          <label>
+            Cédula profesional / Reg. SENESCYT
             <input value={form.professional_license} onChange={set("professional_license")} />
           </label>
           <label>
             Especialidad
             <input value={form.specialty} onChange={set("specialty")} placeholder="Medicina General" />
+          </label>
+          <label>
+            Correo electrónico
+            <input type="email" value={form.email} onChange={set("email")} />
           </label>
           <label className="span-2">
             Nombre del consultorio
@@ -56,6 +64,10 @@ export default function DoctorProfileModal({ onClose, onSaved }) {
           <label>
             Teléfono
             <input value={form.clinic_phone} onChange={set("clinic_phone")} />
+          </label>
+          <label>
+            Ciudad (lugar de emisión)
+            <input value={form.city} onChange={set("city")} placeholder="Manta" />
           </label>
 
           <div className="modal-actions span-2">

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import DiagnosisSearch from "./DiagnosisSearch.jsx";
 import PrescriptionModal from "./PrescriptionModal.jsx";
+import CertificateModal from "./CertificateModal.jsx";
 
 const EMPTY_NOTE = {
   subjective: "",
@@ -33,12 +34,20 @@ function formatDateTime(iso) {
   });
 }
 
+const CERT_TYPE_LABELS = {
+  enfermedad: "Enfermedad",
+  aislamiento: "Aislamiento",
+  teletrabajo: "Teletrabajo",
+};
+
 export default function PatientRecord({ patientId, appointmentId, onOpenDoctorProfile, onBack }) {
   const [patient, setPatient] = useState(null);
   const [history, setHistory] = useState([]);
   const [prescriptions, setPrescriptions] = useState([]);
+  const [certificates, setCertificates] = useState([]);
   const [doctorReady, setDoctorReady] = useState(true);
   const [showRxModal, setShowRxModal] = useState(false);
+  const [showCertModal, setShowCertModal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [note, setNote] = useState(EMPTY_NOTE);
   const [saving, setSaving] = useState(false);
@@ -48,15 +57,17 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
   async function load() {
     setLoading(true);
     try {
-      const [p, h, rx, profile] = await Promise.all([
+      const [p, h, rx, certs, profile] = await Promise.all([
         api.patients.get(patientId),
         api.consultations.listByPatient(patientId),
         api.prescriptions.listByPatient(patientId),
+        api.certificates.listByPatient(patientId),
         api.doctorProfile.get(),
       ]);
       setPatient(p);
       setHistory(h);
       setPrescriptions(rx);
+      setCertificates(certs);
       setDoctorReady(Boolean(profile.full_name));
     } finally {
       setLoading(false);
@@ -144,6 +155,18 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
                   <dd>{patient.phone}</dd>
                 </>
               )}
+              {patient.id_number && (
+                <>
+                  <dt>Cédula</dt>
+                  <dd>{patient.id_number}</dd>
+                </>
+              )}
+              {patient.workplace && (
+                <>
+                  <dt>Institución</dt>
+                  <dd>{patient.workplace}</dd>
+                </>
+              )}
             </dl>
 
             {patient.allergies && (
@@ -190,6 +213,7 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
               ))}
             </ol>
           )}
+
           <div className="rx-section-header">
             <h3 className="history-title" style={{ margin: 0 }}>
               Recetas
@@ -212,6 +236,42 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
                   <a
                     className="link-btn"
                     href={api.prescriptions.pdfUrl(rx.id)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Ver PDF
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <div className="rx-section-header">
+            <h3 className="history-title" style={{ margin: 0 }}>
+              Certificados médicos
+            </h3>
+            <button className="btn-primary sm" onClick={() => setShowCertModal(true)}>
+              + Nuevo certificado
+            </button>
+          </div>
+          {certificates.length === 0 ? (
+            <p className="hint">Aún no se han emitido certificados.</p>
+          ) : (
+            <ul className="history-list">
+              {certificates.map((cert) => (
+                <li key={cert.id} className="folder-card history-card">
+                  <div className="modal-tab" style={{ background: "#2B5C8A" }} />
+                  <div className="history-date">{formatDateTime(cert.created_at)}</div>
+                  <div className="history-dx">
+                    {CERT_TYPE_LABELS[cert.certificate_type] || cert.certificate_type}
+                    {cert.diagnosis_label ? ` — ${cert.diagnosis_label}` : ""}
+                  </div>
+                  <div className="history-field">
+                    {cert.days_granted} día{cert.days_granted === 1 ? "" : "s"} · {cert.date_from} a {cert.date_to}
+                  </div>
+                  <a
+                    className="link-btn"
+                    href={api.certificates.pdfUrl(cert.id)}
                     target="_blank"
                     rel="noreferrer"
                   >
@@ -308,6 +368,19 @@ export default function PatientRecord({ patientId, appointmentId, onOpenDoctorPr
           onOpenDoctorProfile={onOpenDoctorProfile}
           onClose={() => {
             setShowRxModal(false);
+            load();
+          }}
+        />
+      )}
+
+      {showCertModal && (
+        <CertificateModal
+          patientId={patientId}
+          consultationId={null}
+          doctorReady={doctorReady}
+          onOpenDoctorProfile={onOpenDoctorProfile}
+          onClose={() => {
+            setShowCertModal(false);
             load();
           }}
         />
