@@ -1,6 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { db, logAudit } from "../db.js";
+import { db, logAudit, suggestAvailableUsername } from "../db.js";
 
 export const usersRouter = Router();
 
@@ -10,6 +10,13 @@ usersRouter.get("/", (req, res) => {
     .prepare(`SELECT id, username, full_name, role, created_at FROM users WHERE clinic_id = ? ORDER BY role, full_name`)
     .all(req.user.clinic_id);
   res.json(rows);
+});
+
+// GET /api/users/suggest-username?desired=sofia -> propone un usuario libre
+usersRouter.get("/suggest-username", (req, res) => {
+  const desired = String(req.query.desired || "").trim();
+  if (!desired) return res.json({ suggestion: "" });
+  res.json({ suggestion: suggestAvailableUsername(desired) });
 });
 
 // POST /api/users -> crear cuenta de secretaria dentro de la misma clínica del médico que la crea
@@ -25,7 +32,12 @@ usersRouter.post("/", (req, res) => {
   // El username es único en TODA la plataforma (no solo en la clínica),
   // porque el login no pide "clínica", solo usuario/contraseña.
   const existing = db.prepare(`SELECT id FROM users WHERE username = ?`).get(username.trim().toLowerCase());
-  if (existing) return res.status(400).json({ error: "Ese nombre de usuario ya existe" });
+  if (existing) {
+    return res.status(400).json({
+      error: "Ese nombre de usuario ya existe",
+      suggestion: suggestAvailableUsername(username),
+    });
+  }
 
   const password_hash = bcrypt.hashSync(password, 10);
   const result = db

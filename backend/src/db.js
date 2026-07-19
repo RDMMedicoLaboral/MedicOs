@@ -319,6 +319,27 @@ export function newQrToken() {
   return crypto.randomBytes(16).toString("hex");
 }
 
+// Convierte "Sofía Barberán" o "sofia" en un slug simple ("sofia.barberan",
+// "sofia"), y si ya existe le agrega un sufijo numérico (sofia2, sofia3...)
+// hasta encontrar uno libre en TODA la plataforma (username es único
+// globalmente porque el login no pide "clínica").
+export function suggestAvailableUsername(desired) {
+  const base = desired
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // quitar acentos
+    .toLowerCase()
+    .replace(/[^a-z0-9.]+/g, ".")
+    .replace(/\.+/g, ".")
+    .replace(/^\.|\.$/g, "") || "usuario";
+
+  const exists = (u) => Boolean(db.prepare(`SELECT id FROM users WHERE username = ?`).get(u));
+
+  if (!exists(base)) return base;
+  let i = 2;
+  while (exists(`${base}${i}`)) i++;
+  return `${base}${i}`;
+}
+
 export const VALID_STATUSES = [
   "programada",
   "confirmada",

@@ -1,12 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 
 export default function UsersModal({ onClose }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ username: "", password: "", full_name: "" });
+  const [usernameTouched, setUsernameTouched] = useState(false);
   const [error, setError] = useState(null);
+  const [suggestion, setSuggestion] = useState(null);
   const [saving, setSaving] = useState(false);
+  const debounceRef = useRef(null);
 
   async function load() {
     setLoading(true);
@@ -21,16 +24,32 @@ export default function UsersModal({ onClose }) {
     load();
   }, []);
 
+  // Mientras el usuario no haya tocado a mano el campo "Usuario", lo
+  // autocompletamos a partir del nombre completo (ej. "Sofía López" ->
+  // "sofia.lopez", o "sofia.lopez2" si ya existe).
+  useEffect(() => {
+    if (usernameTouched || !form.full_name.trim()) return;
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      const { suggestion: s } = await api.users.suggestUsername(form.full_name);
+      if (s) setForm((f) => (f.username === "" || !usernameTouched ? { ...f, username: s } : f));
+    }, 300);
+    return () => clearTimeout(debounceRef.current);
+  }, [form.full_name, usernameTouched]);
+
   async function handleCreate(e) {
     e.preventDefault();
     setError(null);
+    setSuggestion(null);
     setSaving(true);
     try {
       await api.users.create(form);
       setForm({ username: "", password: "", full_name: "" });
+      setUsernameTouched(false);
       load();
     } catch (err) {
       setError(err.message);
+      if (err.suggestion) setSuggestion(err.suggestion);
     } finally {
       setSaving(false);
     }
@@ -70,6 +89,9 @@ export default function UsersModal({ onClose }) {
         )}
 
         <h3 className="history-title">Nueva cuenta de secretaria</h3>
+        <p className="hint" style={{ marginTop: -8, marginBottom: 10 }}>
+          El usuario se sugiere solo a partir del nombre; puedes cambiarlo si quieres uno distinto.
+        </p>
         <form onSubmit={handleCreate} className="form-grid">
           <label className="span-2">
             Nombre completo
@@ -81,7 +103,13 @@ export default function UsersModal({ onClose }) {
           </label>
           <label>
             Usuario
-            <input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
+            <input
+              value={form.username}
+              onChange={(e) => {
+                setUsernameTouched(true);
+                setForm({ ...form, username: e.target.value });
+              }}
+            />
           </label>
           <label>
             Contraseña
@@ -93,7 +121,28 @@ export default function UsersModal({ onClose }) {
             />
           </label>
 
-          {error && <p className="form-error span-2">{error}</p>}
+          {error && (
+            <p className="form-error span-2">
+              {error}
+              {suggestion && (
+                <>
+                  {" "}
+                  <button
+                    type="button"
+                    className="link-btn"
+                    onClick={() => {
+                      setForm((f) => ({ ...f, username: suggestion }));
+                      setUsernameTouched(true);
+                      setError(null);
+                      setSuggestion(null);
+                    }}
+                  >
+                    Usar "{suggestion}"
+                  </button>
+                </>
+              )}
+            </p>
+          )}
 
           <div className="modal-actions span-2">
             <button type="button" className="btn-ghost" onClick={onClose}>

@@ -31,7 +31,9 @@ async function request(path, options = {}) {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Error ${res.status}`);
+    const err = new Error(body.error || `Error ${res.status}`);
+    Object.assign(err, body); // adjunta campos extra como `suggestion`, si el backend los manda
+    throw err;
   }
   if (res.status === 204) return null;
   return res.json();
@@ -46,6 +48,7 @@ export const api = {
     list: () => request(`/users`),
     create: (data) => request(`/users`, { method: "POST", body: JSON.stringify(data) }),
     remove: (id) => request(`/users/${id}`, { method: "DELETE" }),
+    suggestUsername: (desired) => request(`/users/suggest-username?desired=${encodeURIComponent(desired)}`),
   },
   patients: {
     list: (q) => request(`/patients${q ? `?q=${encodeURIComponent(q)}` : ""}`),

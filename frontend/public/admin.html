@@ -53,9 +53,10 @@
       <label for="clinicName">Nombre del consultorio</label>
       <input id="clinicName" placeholder="Consultorio Dr. García" />
       <label for="fullName">Nombre completo del médico</label>
-      <input id="fullName" placeholder="Dr. Juan García" />
+      <input id="fullName" placeholder="Dr. Juan García" oninput="onFullNameInput()" />
       <label for="username">Usuario (para iniciar sesión)</label>
-      <input id="username" placeholder="dr.garcia" />
+      <input id="username" placeholder="dr.garcia" oninput="onUsernameInput()" />
+      <div class="hint" id="usernameHint" style="font-size:0.75rem; color:var(--ink-soft); margin-top:4px;"></div>
       <label for="password">Contraseña temporal</label>
       <input id="password" type="text" placeholder="Mínimo 6 caracteres" />
       <button onclick="createClinic()">Crear consultorio</button>
@@ -87,7 +88,11 @@
       headers: { 'Content-Type': 'application/json', 'X-Admin-Secret': SECRET, ...(options.headers || {}) },
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || ('Error ' + res.status));
+    if (!res.ok) {
+      const err = new Error(body.error || ('Error ' + res.status));
+      Object.assign(err, body);
+      throw err;
+    }
     return body;
   }
 
@@ -118,6 +123,27 @@
     `).join('') || '<tr><td colspan="5">Todavía no hay consultorios.</td></tr>';
   }
 
+  let usernameTouched = false;
+  let suggestDebounce = null;
+
+  function onFullNameInput() {
+    if (usernameTouched) return;
+    clearTimeout(suggestDebounce);
+    const fullName = document.getElementById('fullName').value.trim();
+    if (!fullName) return;
+    suggestDebounce = setTimeout(async () => {
+      try {
+        const { suggestion } = await api('/suggest-username?desired=' + encodeURIComponent(fullName));
+        if (suggestion && !usernameTouched) document.getElementById('username').value = suggestion;
+      } catch (e) { /* si aún no has desbloqueado con la clave, ignoramos */ }
+    }, 300);
+  }
+
+  function onUsernameInput() {
+    usernameTouched = true;
+    document.getElementById('usernameHint').textContent = '';
+  }
+
   async function createClinic() {
     const clinic_name = document.getElementById('clinicName').value.trim();
     const full_name = document.getElementById('fullName').value.trim();
@@ -130,9 +156,15 @@
       document.getElementById('fullName').value = '';
       document.getElementById('username').value = '';
       document.getElementById('password').value = '';
+      document.getElementById('usernameHint').textContent = '';
+      usernameTouched = false;
       loadClinics();
     } catch (err) {
       showMsg('createMsg', err.message, false);
+      if (err.suggestion) {
+        const hint = document.getElementById('usernameHint');
+        hint.innerHTML = 'Prueba con: <a href="#" onclick="document.getElementById(\'username\').value=\'' + err.suggestion + '\'; usernameTouched=true; return false;">' + err.suggestion + '</a>';
+      }
     }
   }
 
