@@ -80,6 +80,11 @@ export const api = {
     create: (data) => request(`/prescriptions`, { method: "POST", body: JSON.stringify(data) }),
     pdfUrl: (id) => `${BASE}/prescriptions/${id}/pdf?token=${encodeURIComponent(getToken() || "")}`,
   },
+  certificates: {
+    listByPatient: (patientId) => request(`/certificates/patient/${patientId}`),
+    create: (data) => request(`/certificates`, { method: "POST", body: JSON.stringify(data) }),
+    pdfUrl: (id) => `${BASE}/certificates/${id}/pdf?token=${encodeURIComponent(getToken() || "")}`,
+  },
   reminders: {
     getSettings: () => request(`/reminder-settings`),
     updateSettings: (data) => request(`/reminder-settings`, { method: "PUT", body: JSON.stringify(data) }),
