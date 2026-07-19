@@ -1,6 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { db, logAudit } from "../db.js";
+import { db, logAudit, suggestAvailableUsername } from "../db.js";
 
 export const adminRouter = Router();
 
@@ -35,6 +35,13 @@ adminRouter.get("/clinics", (_req, res) => {
   res.json(rows);
 });
 
+// GET /api/admin/suggest-username?desired=sofia -> propone un usuario libre
+adminRouter.get("/suggest-username", (req, res) => {
+  const desired = String(req.query.desired || "").trim();
+  if (!desired) return res.json({ suggestion: "" });
+  res.json({ suggestion: suggestAvailableUsername(desired) });
+});
+
 // POST /api/admin/clinics -> crea una clínica nueva + su primera cuenta (médico)
 adminRouter.post("/clinics", (req, res) => {
   const { clinic_name, username, password, full_name } = req.body;
@@ -46,7 +53,12 @@ adminRouter.post("/clinics", (req, res) => {
   }
 
   const existing = db.prepare(`SELECT id FROM users WHERE username = ?`).get(username.trim().toLowerCase());
-  if (existing) return res.status(400).json({ error: "Ese nombre de usuario ya existe en otra clínica" });
+  if (existing) {
+    return res.status(400).json({
+      error: "Ese nombre de usuario ya existe en otra clínica",
+      suggestion: suggestAvailableUsername(username),
+    });
+  }
 
   const clinicResult = db.prepare(`INSERT INTO clinics (name) VALUES (?)`).run(clinic_name);
   const clinicId = clinicResult.lastInsertRowid;
