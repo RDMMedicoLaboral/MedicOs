@@ -79,6 +79,35 @@ prescriptionsRouter.get("/patient/:patientId", (req, res) => {
   res.json(rows.map((r) => ({ ...r, items: JSON.parse(r.items_json) })));
 });
 
+// GET /api/prescriptions/:id -> una receta (para precargar el formulario de edición)
+prescriptionsRouter.get("/:id", (req, res) => {
+  const rx = db.prepare(`SELECT * FROM prescriptions WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+  if (!rx) return res.status(404).json({ error: "Receta no encontrada" });
+  res.json({ ...rx, items: JSON.parse(rx.items_json) });
+});
+
+// PUT /api/prescriptions/:id -> corregir una receta ya emitida (por si se escribió con un error)
+prescriptionsRouter.put("/:id", (req, res) => {
+  const existing = db.prepare(`SELECT * FROM prescriptions WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+  if (!existing) return res.status(404).json({ error: "Receta no encontrada" });
+
+  const { items, instructions } = req.body;
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: "Agrega al menos un medicamento" });
+  }
+
+  db.prepare(`UPDATE prescriptions SET items_json = ?, instructions = ?, updated_at = datetime('now') WHERE id = ?`).run(
+    JSON.stringify(items),
+    instructions ?? null,
+    req.params.id
+  );
+
+  logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "update", entity: "prescription", entityId: req.params.id });
+
+  const updated = db.prepare(`SELECT * FROM prescriptions WHERE id = ?`).get(req.params.id);
+  res.json({ ...updated, items: JSON.parse(updated.items_json) });
+});
+
 // GET /api/prescriptions/:id/pdf -> genera y transmite el PDF con QR (validado por clínica)
 prescriptionsRouter.get("/:id/pdf", async (req, res) => {
   const rx = db.prepare(`SELECT * FROM prescriptions WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);

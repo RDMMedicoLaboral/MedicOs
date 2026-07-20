@@ -82,3 +82,48 @@ consultationsRouter.post("/consultations", (req, res) => {
   const consultation = db.prepare(`SELECT * FROM consultations WHERE id = ?`).get(result.lastInsertRowid);
   res.status(201).json(consultation);
 });
+
+// PUT /api/consultations/:id -> editar una nota ya guardada (por si se escribió con un error)
+consultationsRouter.put("/consultations/:id", (req, res) => {
+  const existing = db
+    .prepare(`SELECT * FROM consultations WHERE id = ? AND clinic_id = ?`)
+    .get(req.params.id, req.user.clinic_id);
+  if (!existing) return res.status(404).json({ error: "Nota no encontrada" });
+
+  const {
+    subjective,
+    blood_pressure,
+    heart_rate,
+    temperature_c,
+    weight_kg,
+    height_cm,
+    diagnosis_code,
+    diagnosis_label,
+    plan,
+  } = req.body;
+
+  const bmi = computeBmi(weight_kg, height_cm);
+
+  db.prepare(
+    `UPDATE consultations SET
+      subjective = ?, blood_pressure = ?, heart_rate = ?, temperature_c = ?,
+      weight_kg = ?, height_cm = ?, bmi = ?, diagnosis_code = ?, diagnosis_label = ?, plan = ?,
+      updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(
+    subjective ?? null,
+    blood_pressure ?? null,
+    heart_rate ?? null,
+    temperature_c ?? null,
+    weight_kg ?? null,
+    height_cm ?? null,
+    bmi,
+    diagnosis_code ?? null,
+    diagnosis_label ?? null,
+    plan ?? null,
+    req.params.id
+  );
+
+  logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "update", entity: "consultation", entityId: req.params.id });
+  res.json(db.prepare(`SELECT * FROM consultations WHERE id = ?`).get(req.params.id));
+});

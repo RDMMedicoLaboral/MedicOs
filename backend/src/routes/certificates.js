@@ -125,6 +125,64 @@ certificatesRouter.get("/patient/:patientId", (req, res) => {
   res.json(rows);
 });
 
+// GET /api/certificates/:id -> un certificado (para precargar el formulario de edición)
+certificatesRouter.get("/:id", (req, res) => {
+  const cert = db.prepare(`SELECT * FROM certificates WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+  if (!cert) return res.status(404).json({ error: "Certificado no encontrado" });
+  res.json(cert);
+});
+
+// PUT /api/certificates/:id -> corregir un certificado ya emitido (por si se escribió con un error)
+certificatesRouter.put("/:id", (req, res) => {
+  const existing = db.prepare(`SELECT * FROM certificates WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);
+  if (!existing) return res.status(404).json({ error: "Certificado no encontrado" });
+
+  const {
+    diagnosis_code,
+    diagnosis_label,
+    clinical_picture,
+    presents_symptoms,
+    certificate_type,
+    description,
+    date_from,
+    date_to,
+    days_granted,
+  } = req.body;
+
+  if (!date_from || !date_to) return res.status(400).json({ error: "date_from y date_to son obligatorios" });
+  if (!TYPE_LABELS[certificate_type]) {
+    return res.status(400).json({ error: "certificate_type debe ser enfermedad, aislamiento o teletrabajo" });
+  }
+
+  const autoDays = daysBetweenInclusive(date_from, date_to);
+  const finalDays = days_granted ?? autoDays;
+  if (!finalDays || finalDays < 1) {
+    return res.status(400).json({ error: "El rango de fechas o los días concedidos no son válidos" });
+  }
+
+  db.prepare(
+    `UPDATE certificates SET
+      diagnosis_code = ?, diagnosis_label = ?, clinical_picture = ?, presents_symptoms = ?,
+      certificate_type = ?, description = ?, days_granted = ?, date_from = ?, date_to = ?,
+      updated_at = datetime('now')
+     WHERE id = ?`
+  ).run(
+    diagnosis_code ?? null,
+    diagnosis_label ?? null,
+    clinical_picture ?? null,
+    presents_symptoms === false ? 0 : 1,
+    certificate_type,
+    description ?? null,
+    finalDays,
+    date_from,
+    date_to,
+    req.params.id
+  );
+
+  logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "update", entity: "certificate", entityId: req.params.id });
+  res.json(db.prepare(`SELECT * FROM certificates WHERE id = ?`).get(req.params.id));
+});
+
 // GET /api/certificates/:id/pdf -> genera y transmite el PDF
 certificatesRouter.get("/:id/pdf", (req, res) => {
   const cert = db.prepare(`SELECT * FROM certificates WHERE id = ? AND clinic_id = ?`).get(req.params.id, req.user.clinic_id);

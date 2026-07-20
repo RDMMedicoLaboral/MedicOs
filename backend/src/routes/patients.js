@@ -6,6 +6,26 @@ export const patientsRouter = Router();
 
 const CLINICAL_FIELDS = ["allergies", "chronic_conditions", "notes"];
 
+// Calcula el siguiente número de historia clínica de la clínica (ej.
+// "0001", "0002"...). Usa el máximo numérico ya usado (no un simple
+// conteo) para no repetir números si algún paciente fue eliminado.
+function nextClinicalHistoryNumber(clinicId) {
+  const rows = db
+    .prepare(`SELECT clinical_history_number FROM patients WHERE clinic_id = ? AND clinical_history_number IS NOT NULL`)
+    .all(clinicId);
+  let max = 0;
+  for (const r of rows) {
+    const n = parseInt(r.clinical_history_number, 10);
+    if (!Number.isNaN(n) && n > max) max = n;
+  }
+  return String(max + 1).padStart(4, "0");
+}
+
+// GET /api/patients/next-history-number -> vista previa (no reserva el número)
+patientsRouter.get("/next-history-number", (req, res) => {
+  res.json({ suggestion: nextClinicalHistoryNumber(req.user.clinic_id) });
+});
+
 // La secretaria ve datos de agenda/contacto, nunca historial médico
 // (alergias, antecedentes, notas clínicas), tal como pide el documento.
 function redactForRole(patient, role) {
@@ -70,6 +90,15 @@ patientsRouter.post("/", (req, res) => {
     return res.status(400).json({ error: "first_name y last_name son obligatorios" });
   }
 
+  // Si el médico/secretaria no especificó un número de historia clínica,
+  // se asigna automáticamente el siguiente consecutivo de la clínica
+  // (0001, 0002...). Si sí lo especificaron, se respeta tal cual (permite
+  // editarlo o usar una numeración propia ya existente).
+  const finalHistoryNumber =
+    clinical_history_number && String(clinical_history_number).trim()
+      ? String(clinical_history_number).trim()
+      : nextClinicalHistoryNumber(req.user.clinic_id);
+
   const result = db
     .prepare(
       `INSERT INTO patients
@@ -97,7 +126,7 @@ patientsRouter.post("/", (req, res) => {
       address ?? null,
       workplace ?? null,
       job_title ?? null,
-      clinical_history_number ?? null
+      finalHistoryNumber
     );
 
   logAudit({ clinicId: req.user.clinic_id, actor: req.user.username, action: "create", entity: "patient", entityId: result.lastInsertRowid });

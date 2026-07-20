@@ -44,7 +44,21 @@ adminRouter.get("/suggest-username", (req, res) => {
 
 // POST /api/admin/clinics -> crea una clínica nueva + su primera cuenta (médico)
 adminRouter.post("/clinics", (req, res) => {
-  const { clinic_name, username, password, full_name } = req.body;
+  const {
+    clinic_name,
+    username,
+    password,
+    full_name,
+    // Opcionales: si se mandan, ya dejan el Perfil del médico pre-llenado
+    // (el médico puede editarlos después desde "Perfil del médico").
+    personal_id,
+    professional_license,
+    specialty,
+    email,
+    city,
+    clinic_address,
+    clinic_phone,
+  } = req.body;
   if (!clinic_name || !username || !password || !full_name) {
     return res.status(400).json({ error: "clinic_name, username, password y full_name son obligatorios" });
   }
@@ -67,6 +81,27 @@ adminRouter.post("/clinics", (req, res) => {
   const userResult = db
     .prepare(`INSERT INTO users (clinic_id, username, password_hash, full_name, role) VALUES (?, ?, ?, ?, 'medico')`)
     .run(clinicId, username.trim().toLowerCase(), password_hash, full_name);
+
+  // Pre-llenamos el perfil del médico con lo que ya sabemos (nombre y
+  // nombre del consultorio como mínimo), para que "Perfil del médico" no
+  // se vea vacío la primera vez que el médico entra. Puede editarlo
+  // libremente después.
+  db.prepare(
+    `INSERT INTO doctor_profile
+      (clinic_id, full_name, personal_id, professional_license, specialty, email, city, clinic_name, clinic_address, clinic_phone)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    clinicId,
+    full_name,
+    personal_id ?? "",
+    professional_license ?? "",
+    specialty ?? "",
+    email ?? "",
+    city ?? "",
+    clinic_name,
+    clinic_address ?? "",
+    clinic_phone ?? ""
+  );
 
   logAudit({ clinicId, actor: "admin", action: "create", entity: "clinic", entityId: clinicId, detail: { clinic_name } });
 
