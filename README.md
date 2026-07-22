@@ -12,9 +12,16 @@ Módulos incluidos:
   en tiempo real (Programada → Confirmada → En sala de espera → En
   consulta → Finalizada, con salidas a Cancelada / No asistió).
 - **Expediente Clínico**: nota de evolución formato **SOAP**, IMC
-  automático, buscador de diagnóstico tipo CIE-11.
+  automático, buscador de diagnóstico CIE-10 (con edición de notas ya
+  guardadas).
 - **Receta Electrónica**: buscador de medicamentos, **PDF con código QR**
-  de validación.
+  de validación (editable después de emitida, por si hubo un error).
+- **Certificados médicos** (incapacidad/reposo, aislamiento, teletrabajo):
+  diagnóstico (CIE-10), cuadro clínico, rango de fechas con cálculo
+  automático de días, y **PDF** con el mismo formato de un certificado
+  real (datos del establecimiento, datos del paciente, motivo de
+  aislamiento/enfermedad, fechas escritas en letras — ej. "QUINCE DE
+  JULIO DEL DOS MIL VEINTISÉIS") — también editable después de emitido.
 - **Login y roles**: **Médico** (acceso total a su clínica) y
   **Secretaria** (solo agenda y contacto de su clínica; el backend le
   bloquea con 403 todo lo clínico).
@@ -22,27 +29,51 @@ Módulos incluidos:
   simulado): confirma o cancela la cita sola cuando el paciente responde.
 - **Multi-consultorio (multi-tenant)**: tú, como dueño de la plataforma,
   das de alta cada consultorio nuevo desde una página de administración
-  (`/admin.html`) — no hay registro público. Cada médico solo ve lo suyo.
-
+  (`/admin.html`) — no hay registro público. Cada médico solo ve lo suyo,
+  y el perfil del médico queda pre-llenado desde que se crea la cuenta.
+- **Número de historia clínica automático**: 0001, 0002... por
+  consultorio, editable si el médico prefiere otra numeración.
 
 ## Estructura
 
 ```
 ece-agenda/
-  backend/    API REST (Node.js + Express + SQLite + JWT + pdfkit + qrcode + twilio)
+  backend/    API REST (Node.js + Express + PostgreSQL + JWT + pdfkit + qrcode + twilio)
   frontend/   Interfaz web (React + Vite)
 ```
 
+## Base de datos (PostgreSQL / Neon)
+
+La app usa **PostgreSQL**, no un archivo local — esto es intencional y
+resuelve un problema real: los planes gratis de hosting (Render incluido)
+borran el disco del servidor en cada despliegue, así que una base de
+datos en archivo local (como SQLite) pierde todo cada vez que se
+actualiza el código. Postgres administrado vive fuera del servidor web y
+sobrevive a cualquier despliegue, reinicio, o "dormida" del servicio.
+
+Recomendamos **[Neon](https://neon.tech)**: tiene un plan gratis
+permanente (no es una prueba de 30 días), no pide tarjeta, y da hasta 10
+proyectos con 0.5 GB cada uno — de sobra para este MVP.
+
+**Crear la base de datos (una sola vez):**
+1. Ve a [neon.tech](https://neon.tech) y crea una cuenta gratis.
+2. Crea un proyecto nuevo (cualquier nombre, ej. "medicos").
+3. En el dashboard del proyecto, copia la **cadena de conexión**
+   ("Connection string") — se ve algo así:
+   `postgresql://usuario:contraseña@ep-algo.neon.tech/neondb?sslmode=require`
+4. Esa cadena completa es tu `DATABASE_URL`.
+
 ## Cómo correrlo
 
-**0. Define tu clave de administrador** (una sola vez). En la terminal del
-backend, antes de `npm run dev`, corre:
+**0. Variables de entorno.** En la terminal del backend, antes de
+`npm run dev`, define:
 ```bash
+export DATABASE_URL="postgresql://usuario:contraseña@ep-algo.neon.tech/neondb?sslmode=require"
 export ADMIN_SECRET="elige-una-clave-larga-y-dificil-de-adivinar"
 ```
-(en Codespaces tienes que ponerlo en cada terminal nueva que abras del
-backend, o agregarlo a un archivo `.env` — ver más abajo). Esta clave es
-tuya, del dueño de la plataforma — no se la das a los médicos.
+(`ADMIN_SECRET` es tuya, del dueño de la plataforma — no se la das a los
+médicos. Ver más abajo cómo no tener que repetir esto en cada terminal
+nueva.)
 
 **1. Backend**
 ```bash
@@ -50,6 +81,8 @@ cd backend
 npm install
 npm run dev        # http://localhost:4000
 ```
+La primera vez que arranca, crea automáticamente todas las tablas en tu
+base de Neon (no hace falta ejecutar ningún script aparte).
 
 **2. Frontend** (en otra terminal)
 ```bash
@@ -61,29 +94,33 @@ npm run dev         # http://localhost:5173
 **3. Da de alta el primer consultorio.** Abre
 `http://localhost:5173/admin.html` (nota: es `/admin.html`, no la app
 normal). Ahí metes la `ADMIN_SECRET` que definiste en el paso 0, y llenas
-el formulario: nombre del consultorio, nombre del médico, usuario y
-contraseña. Esos son los datos que le compartes al médico para que entre
-a `http://localhost:5173` (la app normal) con su usuario y contraseña.
+el formulario: nombre del consultorio, nombre del médico, usuario,
+contraseña, y opcionalmente sus datos (cédula, especialidad, dirección,
+etc. — quedan pre-llenados en "Perfil del médico"). Esos son los datos
+que le compartes al médico para que entre a `http://localhost:5173` con
+su usuario y contraseña.
 
 Repite el paso 3 cada vez que quieras dar de alta a un médico nuevo —
 cada uno queda completamente aislado de los demás.
 
 **Dentro de la app normal**, cada médico puede entrar a "Gestionar
 usuarios" para crear cuentas de Secretaria (solo para su propia clínica),
-"Perfil del médico" para los datos de su receta, y "Recordatorios" para
-activar los avisos automáticos — todo eso ya sin necesitar tu ayuda.
+"Perfil del médico" para completar/corregir sus datos, y "Recordatorios"
+para activar los avisos automáticos — todo eso ya sin necesitar tu ayuda.
 
-### Guardar la ADMIN_SECRET permanentemente en Codespaces (opcional)
+### Guardar las variables permanentemente en Codespaces (opcional)
 
-Para no tener que escribir el `export` cada vez que abres una terminal
+Para no tener que escribir los `export` cada vez que abres una terminal
 nueva, crea un archivo `backend/.env` con:
 ```
+DATABASE_URL=postgresql://usuario:contraseña@ep-algo.neon.tech/neondb?sslmode=require
 ADMIN_SECRET=elige-una-clave-larga-y-dificil-de-adivinar
 ```
 y agrega `dotenv/config` al inicio de `backend/src/server.js`
 (`import "dotenv/config";`) después de instalar `npm install dotenv` en
 `backend/`. (No es obligatorio para el MVP — el `export` manual funciona
-igual de bien mientras estés probando.)
+igual de bien mientras estés probando, solo hay que repetirlo por
+terminal nueva.)
 
 ## Cómo probar los recordatorios SIN contratar nada
 
@@ -112,38 +149,50 @@ a "Confirmada" en la agenda.
    apuntando a `https://<tu-dominio-publico>/api/reminders/webhook`.
    **Importante**: mientras trabajes en Codespaces, esa URL cambia cada
    vez que recreas el Codespace, así que para producción necesitas un
-   dominio estable (ver sección de despliegue en los siguientes pasos).
+   dominio estable (ver sección de despliegue).
 
 ## Decisiones técnicas del MVP
 
+- **PostgreSQL (Neon) en vez de SQLite**: resuelve de raíz el problema de
+  persistencia en hosting gratis (ver sección de arriba). El backend usa
+  un pequeño "shim" de compatibilidad en `backend/src/db.js` que traduce
+  la forma de escribir consultas (`db.prepare(sql).get/all/run(...)`) al
+  driver de Postgres — así el resto del código no tuvo que cambiar de
+  estilo, solo se volvió `async`/`await`.
+- **Migraciones de base de datos**: `initDb()` en `backend/src/db.js`
+  crea las tablas si no existen y agrega columnas nuevas de forma segura
+  con `ALTER TABLE ADD COLUMN IF NOT EXISTS` — nunca borra datos
+  existentes. Se puede correr con seguridad aunque ya haya consultorios y
+  pacientes reales.
 - **El "cron" de recordatorios vive dentro del proceso del backend**
   (`setInterval` cada 15 min). Limitación: solo funciona mientras el
   servidor esté corriendo. En producción conviene un worker/cron aparte
-  (o un servicio como GitHub Actions / cron gestionado) para que corra
-  aunque el servidor se reinicie.
-- **JWT sin refresco**: el token dura 12 horas.
+  para que corra aunque el servidor se reinicie.
+- **JWT sin refresco**: el token dura 12 horas. Si `JWT_SECRET` no está
+  fijado como variable de entorno, se genera uno nuevo en cada despliegue
+  (cerrando la sesión de todos) — para evitarlo, fija `JWT_SECRET` como
+  variable de entorno igual que `DATABASE_URL`.
 - **Contraseñas con bcrypt** (`bcryptjs`, sin dependencias nativas).
-- **SQLite en vez de PostgreSQL**: mismo modelo relacional recomendado en
-  el documento, sin necesitar un servidor de base de datos aparte para el
-  MVP. El esquema evita funciones específicas de SQLite para que migrar a
-  Postgres sea casi un copy-paste de los `CREATE TABLE`.
-- **Buscador de diagnóstico (CIE-11)** y **vademécum de medicamentos**:
-  catálogos LOCALES de ejemplo, no oficiales ni exhaustivos (documentado
-  en el código y en la sección de siguientes pasos).
-- **QR de validación de recetas**: apunta a `/api/verify/:token`, público,
-  resuelve contra `localhost` — para producción necesita un dominio
-  público estable.
+- **Buscador de diagnóstico (CIE-10)** y **vademécum de medicamentos**:
+  catálogos de ejemplo (100+ diagnósticos comunes, ~20 medicamentos), no
+  oficiales ni exhaustivos. Antes de un uso clínico a gran escala,
+  conviene sustituirlos por catálogos completos y vigentes.
+- **QR de validación de recetas**: apunta a `/api/verify/:token`, público
+  — funciona correctamente una vez desplegado en un dominio estable (ver
+  sección de despliegue).
 - **Bitácora de auditoría** (`audit_log`): registra usuario real, acción,
   entidad y momento.
-- **Sin cifrado en reposo todavía**: SQLite no cifra por defecto.
+- **Sin cifrado adicional en reposo**: Neon cifra los datos en tránsito
+  (TLS) y ofrece cifrado en reposo a nivel de infraestructura; para
+  cumplimiento normativo específico (HIPAA-like, según el país), revisar
+  los requisitos exactos aplicables antes de manejar pacientes reales.
 
 ## Desplegar en internet (gratis, sin instalar nada)
 
 Codespaces es genial para desarrollar, pero su URL cambia cada vez que
 recreas el Codespace — no sirve para dejar la app corriendo de forma
-permanente (ni para que el webhook de Twilio o el QR de las recetas
-funcionen siempre). Para eso, despliega en **Render** (plan gratuito,
-todo desde el navegador):
+permanente. Para eso, despliega en **Render** (plan gratuito, todo desde
+el navegador):
 
 1. Ve a [render.com](https://render.com) y entra con tu cuenta de GitHub.
 2. Clic en **"New +" → "Web Service"**.
@@ -155,28 +204,22 @@ todo desde el navegador):
 5. Antes de crear, abre la sección **"Advanced"** y agrega estas variables
    de entorno:
    - `NODE_ENV` = `production`
-   - `ADMIN_SECRET` = (una clave larga que tú inventes — la usarás en `/admin.html` para dar de alta consultorios)
-   - (`JWT_SECRET` es opcional — si no la pones, el backend genera una
-     sola vez y punto)
+   - `DATABASE_URL` = tu cadena de conexión de Neon (la misma que usas en Codespaces)
+   - `ADMIN_SECRET` = una clave larga que tú inventes
+   - `JWT_SECRET` = otra clave larga cualquiera (evita que un despliegue cierre la sesión de todos)
 6. Clic en **"Create Web Service"**. Espera unos minutos mientras
-   instala y compila (verás los logs en vivo, parecido a la terminal de
-   Codespaces).
+   instala y compila (verás los logs en vivo).
 7. Cuando termine, Render te da una URL pública fija, tipo
-   `https://ece-agenda.onrender.com`. Ve primero a
-   `https://ece-agenda.onrender.com/admin.html` para dar de alta el primer
-   consultorio (usando la `ADMIN_SECRET` que pusiste en el paso 5); con
-   esas credenciales, el médico ya puede entrar a la URL normal.
+   `https://ece-agenda.onrender.com`. Ve a
+   `https://ece-agenda.onrender.com/admin.html` para dar de alta
+   consultorios usando tu `ADMIN_SECRET`.
 
-**⚠️ Importante sobre el plan gratis — léelo antes de cargar pacientes
-reales:** en el plan gratis, el archivo de la base de datos (SQLite) vive
-en el disco del servicio, que Render **borra cada vez que hay un nuevo
-despliegue** (o sea, cada vez que actualizas el código con un git push).
-Sobrevive mientras no vuelvas a desplegar — incluyendo cuando el servicio
-"se duerme" tras ~15 min sin uso y despierta solo con la siguiente
-visita, eso sí es normal y no borra nada. Pero para tener una base de
-datos que **nunca** se borre (necesario para usarlo con pacientes de
-verdad), el siguiente paso es conectar una base de datos Postgres real
-(Render también la ofrece gratis) — ver "Siguientes pasos" abajo.
+**Nota sobre el plan gratis de Render**: el servicio "se duerme" tras
+~15 min sin uso y tarda unos segundos en despertar con la siguiente
+visita — normal, no afecta los datos (que ahora viven en Neon, no en el
+servidor). Con el volumen de un consultorio real, para producción
+conviene un plan de pago que no se duerma (así el webhook de Twilio y
+los recordatorios automáticos responden siempre al instante).
 
 Una vez desplegado ahí, esa es la URL que le das a Twilio como webhook
 (`https://tu-app.onrender.com/api/reminders/webhook`) y la que queda
@@ -185,15 +228,10 @@ cambia.
 
 ## Siguientes pasos sugeridos
 
-1. **Migrar de SQLite a PostgreSQL** (Render ofrece una base Postgres
-   gratis) — esto es lo que resuelve de raíz la limitación de
-   persistencia del plan gratis descrita arriba.
-2. Conectar el buscador de diagnóstico a la API oficial de la OMS (ICD-11)
-   y el vademécum a un catálogo de medicamentos vigente.
-3. Mover el envío de recordatorios a un worker/cron independiente del
+1. Conectar el buscador de diagnóstico a un catálogo CIE-10 oficial y
+   completo, y el vademécum a un catálogo de medicamentos vigente.
+2. Mover el envío de recordatorios a un worker/cron independiente del
    proceso web (para que no dependa de que el servicio esté "despierto").
-4. Firma digital real del médico en la receta.
-
-
-
-
+3. Firma digital real del médico en la receta y el certificado.
+4. Plan de pago en Render (o similar) para producción real, evitando la
+   "dormida" del servicio en el plan gratis.

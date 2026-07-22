@@ -13,12 +13,13 @@ services:
         generateValue: true
       - key: ADMIN_SECRET
         sync: false
+      - key: DATABASE_URL
+        sync: false
     # ADMIN_SECRET: defínela tú (cualquier texto largo y difícil de adivinar).
     # Es la clave que usas en /admin.html para dar de alta consultorios nuevos.
-    # NOTA: los discos persistentes de Render requieren un plan de pago.
-    # En el plan gratis, la base de datos SQLite vive en el sistema de
-    # archivos efímero del servicio: sobrevive mientras el servicio esté
-    # activo (incluyendo dormir/despertar por inactividad), pero se borra
-    # cada vez que hay un nuevo despliegue (cada git push). Para persistencia
-    # real y gratuita, ver la sección "Siguientes pasos" del README
-    # (Render Postgres gratis).
+    #
+    # DATABASE_URL: la cadena de conexión de tu base de datos PostgreSQL
+    # (por ejemplo, de Neon.tech, que tiene un plan gratis permanente).
+    # Ver la sección "Base de datos (PostgreSQL / Neon)" del README para
+    # cómo crearla y conectarla. SIN esta variable, el servicio no arranca
+    # (falla rápido con un mensaje de error claro).
