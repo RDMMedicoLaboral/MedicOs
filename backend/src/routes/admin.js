@@ -29,17 +29,39 @@ adminRouter.get("/suggest-username", async (req, res) => {
   res.json({ suggestion: await suggestAvailableUsername(desired) });
 });
 
-// GET /api/admin/clinics -> lista de clínicas dadas de alta, con cuántos usuarios tiene cada una
+// GET /api/admin/clinics -> lista de clínicas dadas de alta, con cuántos usuarios/pacientes
+// tiene cada una, y el usuario de acceso del médico (para no perderlo de vista).
 adminRouter.get("/clinics", async (_req, res) => {
   const rows = await db
     .prepare(
       `SELECT c.id, c.name, c.created_at,
         (SELECT COUNT(*) FROM users u WHERE u.clinic_id = c.id) AS user_count,
-        (SELECT COUNT(*) FROM patients p WHERE p.clinic_id = c.id) AS patient_count
+        (SELECT COUNT(*) FROM patients p WHERE p.clinic_id = c.id) AS patient_count,
+        (SELECT u2.username FROM users u2 WHERE u2.clinic_id = c.id AND u2.role = 'medico' ORDER BY u2.id LIMIT 1) AS doctor_username
        FROM clinics c ORDER BY c.created_at DESC`
     )
     .all();
   res.json(rows);
+});
+
+// POST /api/admin/clinics/:id/reset-password -> genera una contraseña nueva
+// para el médico de esa clínica (la contraseña original nunca se puede
+// recuperar porque se guarda cifrada — esto es lo correcto en vez de
+// intentar "mostrarla de nuevo").
+adminRouter.post("/clinics/:id/reset-password", async (req, res) => {
+  const doctor = await db
+    .prepare(`SELECT id, username FROM users WHERE clinic_id = ? AND role = 'medico' ORDER BY id LIMIT 1`)
+    .get(req.params.id);
+  if (!doctor) return res.status(404).json({ error: "No se encontró la cuenta de médico de esta clínica" });
+
+  const { password } = req.body;
+  const newPassword = password && password.length >= 6 ? password : Math.random().toString(36).slice(-8);
+  const password_hash = bcrypt.hashSync(newPassword, 10);
+
+  await db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`).run(password_hash, doctor.id);
+  await logAudit({ clinicId: req.params.id, actor: "admin", action: "update", entity: "user", entityId: doctor.id, detail: { reason: "password_reset" } });
+
+  res.json({ username: doctor.username, password: newPassword });
 });
 
 // POST /api/admin/clinics -> crea una clínica nueva + su primera cuenta (médico)
